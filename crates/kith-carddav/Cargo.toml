@@ -1,0 +1,11 @@
+[package]
+name    = "kith-carddav"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kith-core  = { path = "../kith-core" }
+kith-vcard = { path = "../kith-vcard" }
+thiserror  = { workspace = true }
+tokio      = { workspace = true }
+tracing    = { workspace = true }

@@ -138,10 +138,12 @@ pub enum FactValue {
     Address(AddressValue),
     Url(UrlValue),
     Im(ImValue),
+    Social(SocialValue),
 
     // ── Relationships ─────────────────────────────────────────────────────
     Relationship(RelationshipValue),
     OrgMembership(OrgMembershipValue),
+    GroupMembership(GroupMembershipValue),
 
     // ── Context ───────────────────────────────────────────────────────────
     Note(String),
@@ -159,6 +161,17 @@ pub struct NameValue {
     pub prefix:     Option<String>,
     pub suffix:     Option<String>,
     pub full:       String,   // FN in vCard; computed or overridden
+}
+
+pub struct AliasValue {
+    pub name:    String,
+    pub context: Option<String>,   // e.g. "maiden name", "stage name"
+}
+
+pub struct PhotoValue {
+    pub path:         String,   // relative to photo_dir; String (not PathBuf) for JSON serde
+    pub content_hash: String,   // SHA-256 hex; used for dedup and ETag
+    pub media_type:   String,   // "image/jpeg", "image/png"
 }
 
 pub struct EmailValue {
@@ -207,8 +220,13 @@ pub struct ImValue {
     pub service: String,   // "Signal", "Matrix", etc.
 }
 
+pub struct SocialValue {
+    pub handle:   String,
+    pub platform: String,
+}
+
 pub struct RelationshipValue {
-    pub relation:   String,     // "sister", "manager", "introduced by"
+    pub relation:   String,        // "sister", "manager", "introduced by"
     pub other_id:   Option<Uuid>,  // if the other party is also a subject
     pub other_name: Option<String>, // free text if not in the store
 }
@@ -220,20 +238,36 @@ pub struct OrgMembershipValue {
     pub role:     Option<String>,
 }
 
-pub struct PhotoValue {
-    pub path:        std::path::PathBuf,  // file on disk relative to photo_dir
-    pub content_hash: String,             // SHA-256 hex; used for dedup and ETag
-    pub media_type:  String,              // "image/jpeg", "image/png"
+pub struct GroupMembershipValue {
+    pub group_name: String,
+    pub group_id:   Option<Uuid>,   // if the group is also a subject
 }
 
 pub struct MeetingValue {
-    pub summary: String,
+    pub summary:  String,
     pub location: Option<String>,
 }
+```
 
-pub struct AliasValue {
-    pub name:    String,
-    pub context: Option<String>,   // e.g. "maiden name", "stage name"
+### Input Type
+
+`NewFact` is the write-side input to `ContactStore::record_fact`. The server assigns `fact_id` and `recorded_at`; callers supply everything else.
+
+```rust
+pub struct NewFact {
+    pub subject_id:        Uuid,
+    pub value:             FactValue,
+    pub effective_at:      Option<EffectiveDate>,
+    pub effective_until:   Option<EffectiveDate>,
+    pub source:            Option<String>,
+    pub confidence:        Confidence,
+    pub recording_context: RecordingContext,
+    pub tags:              Vec<String>,
+}
+
+impl NewFact {
+    /// Convenience constructor with all optional fields at their defaults.
+    pub fn new(subject_id: Uuid, value: FactValue) -> Self { ... }
 }
 ```
 
@@ -291,8 +325,8 @@ pub enum SubjectKind { Person, Organization, Group }
 
 /// Materialized read model — computed, never stored.
 pub struct ContactView {
-    pub subject:     Subject,
-    pub as_of:       DateTime<Utc>,
+    pub subject:      Subject,
+    pub as_of:        DateTime<Utc>,
     pub active_facts: Vec<ResolvedFact>,   // all Active-status facts as of `as_of`
 }
 ```
@@ -321,14 +355,14 @@ CREATE TABLE facts (
     fact_id           TEXT PRIMARY KEY,
     subject_id        TEXT NOT NULL REFERENCES subjects(subject_id),
     fact_type         TEXT NOT NULL,    -- discriminant of FactValue variant, for indexing
-    value_json        TEXT NOT NULL,    -- JSON serialization of the typed FactValue
+    value_json        TEXT NOT NULL,    -- JSON payload (inner data only; discriminant is separate)
     recorded_at       TEXT NOT NULL,    -- ISO 8601 UTC; server-assigned
-    effective_at      TEXT,             -- ISO 8601 or null
-    effective_until   TEXT,
+    effective_at      TEXT,             -- JSON-encoded EffectiveDate or NULL
+    effective_until   TEXT,             -- JSON-encoded EffectiveDate or NULL
     source            TEXT,
     confidence        TEXT NOT NULL DEFAULT 'certain',
-    recording_context TEXT NOT NULL DEFAULT 'manual',  -- 'manual' or JSON import metadata
-    tags              TEXT NOT NULL DEFAULT '[]'       -- JSON array of strings
+    recording_context TEXT NOT NULL DEFAULT '{"kind":"manual"}',  -- JSON-encoded RecordingContext
+    tags              TEXT NOT NULL DEFAULT '[]'                   -- JSON array of strings
 );
 
 -- A fact replaced by a newer corrected/updated version.
@@ -361,50 +395,72 @@ CREATE INDEX facts_type_idx     ON facts(fact_type);
 CREATE INDEX facts_recorded_idx ON facts(recorded_at);
 ```
 
-The active-status query becomes a standard anti-join:
+The active-status query uses a LEFT JOIN so that status information (superseded_by, retracted_reason) can be returned alongside each fact in a single pass:
 
 ```sql
-SELECT f.*, NULL as superseded_by, NULL as retracted_reason
+SELECT
+    f.*,
+    s.new_fact_id AS superseded_by,
+    s.recorded_at AS superseded_at,
+    r.reason      AS retraction_reason,
+    r.recorded_at AS retracted_at
 FROM facts f
+LEFT JOIN supersessions s ON s.old_fact_id = f.fact_id
+LEFT JOIN retractions   r ON r.fact_id     = f.fact_id
 WHERE f.subject_id = ?
-  AND f.fact_id NOT IN (SELECT old_fact_id FROM supersessions)
-  AND f.fact_id NOT IN (SELECT fact_id      FROM retractions)
-  -- point-in-time filter:
   AND f.recorded_at <= ?
 ```
 
+Filtering to only Active facts is done in Rust after the query (retaining rows where both join columns are NULL). The LEFT JOIN approach is preferred over NOT IN subqueries because it returns status metadata in the same row, enabling `get_facts(..., include_inactive: true)` without a second query.
+
 ### Trait Interface
 
+The trait uses native `async fn` in traits (stable since Rust 1.75) with an associated error type, avoiding the `async_trait` proc-macro. Each backend defines its own error type; callers can box it for dynamic dispatch if needed.
+
 ```rust
-#[async_trait]
 pub trait ContactStore: Send + Sync {
+    type Error: std::error::Error + Send + Sync + 'static;
+
     // Subjects
-    async fn add_subject(&self, kind: SubjectKind) -> Result<Subject>;
-    async fn get_subject(&self, id: Uuid) -> Result<Option<Subject>>;
-    async fn list_subjects(&self, kind: Option<SubjectKind>) -> Result<Vec<Subject>>;
+    async fn add_subject(&self, kind: SubjectKind) -> Result<Subject, Self::Error>;
+    async fn get_subject(&self, id: Uuid) -> Result<Option<Subject>, Self::Error>;
+    async fn list_subjects(&self, kind: Option<SubjectKind>) -> Result<Vec<Subject>, Self::Error>;
 
     // Facts — append-only writes
-    async fn record_fact(&self, input: NewFact) -> Result<Fact>;
+    async fn record_fact(&self, input: NewFact) -> Result<Fact, Self::Error>;
 
     // Lifecycle events — recorded in their own tables, never mutate facts
-    async fn supersede(&self, old_id: Uuid, replacement: NewFact) -> Result<(Supersession, Fact)>;
-    async fn retract(&self, fact_id: Uuid, reason: Option<String>) -> Result<Retraction>;
+    async fn supersede(&self, old_id: Uuid, replacement: NewFact) -> Result<(Supersession, Fact), Self::Error>;
+    async fn retract(&self, fact_id: Uuid, reason: Option<String>) -> Result<Retraction, Self::Error>;
 
     // Reads
     async fn get_facts(
         &self,
-        subject_id: Uuid,
-        as_of: Option<DateTime<Utc>>,
+        subject_id:       Uuid,
+        as_of:            Option<DateTime<Utc>>,
         include_inactive: bool,   // if false, only Active; if true, also Superseded/Retracted
-    ) -> Result<Vec<ResolvedFact>>;
+    ) -> Result<Vec<ResolvedFact>, Self::Error>;
 
     async fn materialize(
         &self,
         subject_id: Uuid,
-        as_of: Option<DateTime<Utc>>,
-    ) -> Result<Option<ContactView>>;
+        as_of:      Option<DateTime<Utc>>,
+    ) -> Result<Option<ContactView>, Self::Error>;
 
-    async fn search(&self, query: &FactQuery) -> Result<Vec<Subject>>;
+    async fn search(&self, query: &FactQuery) -> Result<Vec<Subject>, Self::Error>;
+}
+
+/// Parameters for ContactStore::search.
+pub struct FactQuery {
+    pub text:            Option<String>,        // free-text LIKE filter over value_json
+    pub kind:            Option<SubjectKind>,
+    pub fact_types:      Vec<String>,           // filter by fact_type discriminant
+    pub tags:            Vec<String>,
+    pub confidence:      Option<Confidence>,
+    pub recorded_after:  Option<DateTime<Utc>>,
+    pub recorded_before: Option<DateTime<Utc>>,
+    pub limit:           Option<usize>,
+    pub offset:          Option<usize>,
 }
 ```
 
@@ -441,7 +497,10 @@ CardDAV stores contacts as **vCard** objects (RFC 6350) hosted on a WebDAV serve
 | `ORG`, `TITLE`, `ROLE` | `organization_membership` |
 | `NOTE` | `note` |
 | `PHOTO` | `photo` |
-| `X-*` custom properties | `custom` |
+| `X-KITH-SOCIAL` | `social` |
+| `X-KITH-GROUP` | `group_membership` |
+| `X-KITH-RELATION` | `relationship` |
+| `X-*` other custom properties | `custom` |
 
 The `PRODID`, `REV`, and `UID` fields are generated from server-side metadata and do not map to facts directly. `UID` maps to `subject_id`.
 
@@ -477,6 +536,8 @@ Key middleware:
 
 The WebDAV XML bodies use **`quick-xml`** for both parsing and generation, keeping the dependency footprint small. Define typed Rust structs for the WebDAV/CardDAV XML vocabulary and implement serialization manually or with `serde` + `quick-xml`'s serde support.
 
+The server binary lives in `kith-carddav` or a dedicated `kith-server` crate and wires together the store backend, the CardDAV handlers, and configuration loading.
+
 ---
 
 ## Crate Structure
@@ -484,14 +545,12 @@ The WebDAV XML bodies use **`quick-xml`** for both parsing and generation, keepi
 ```
 kith/
 ├── Cargo.toml
-├── crates/
-│   ├── kith-core/          # Fact types, Subject, ContactView, trait definitions
-│   ├── kith-store-sqlite/  # SQLite implementation of ContactStore
-│   ├── kith-vcard/         # vCard RFC 6350 parser and serializer
-│   ├── kith-carddav/       # WebDAV/CardDAV protocol layer (axum handlers)
-│   └── kith-cli/           # Command-line management tool
-└── src/
-    └── main.rs             # Wires everything together, reads config
+└── crates/
+    ├── kith-core/          # Fact types, Subject, ContactView, trait definitions
+    ├── kith-store-sqlite/  # SQLite implementation of ContactStore
+    ├── kith-vcard/         # vCard RFC 6350 parser and serializer
+    ├── kith-carddav/       # WebDAV/CardDAV protocol layer (axum handlers + server binary)
+    └── kith-cli/           # Command-line management tool
 ```
 
 This workspace layout lets each layer be tested in isolation. `kith-vcard` has no async code and no HTTP dependencies. `kith-store-sqlite` has no HTTP knowledge. `kith-carddav` depends on `kith-core` and `kith-vcard` but not on the store implementation (via the trait).
@@ -504,7 +563,7 @@ This workspace layout lets each layer be tested in isolation. `kith-vcard` has n
 |---|---|
 | `axum` | HTTP server |
 | `tokio` | Async runtime |
-| `rusqlite` / `rusqlite-tokio` | SQLite storage |
+| `rusqlite` + `tokio-rusqlite` | SQLite storage (sync + async wrapper) |
 | `uuid` | UUID generation and parsing |
 | `chrono` | Date/time handling |
 | `serde` + `serde_json` | Fact value serialization |
@@ -544,7 +603,7 @@ The store is single-writer by design (personal use, one SQLite file). No CRDT or
 
 Full-text search over fact values is implemented in two phases:
 
-**Phase 1 (MVP):** SQL `LIKE` queries over the JSON `value` column for simple name/email lookups. Sufficient for personal use.
+**Phase 1 (MVP):** SQL `LIKE` queries over the JSON `value_json` column for simple name/email lookups. Sufficient for personal use.
 
 **Phase 2:** Integrate SQLite FTS5 for proper full-text search. Index a normalized text representation of each fact value. Exposed via the CardDAV `addressbook-query` REPORT request's `prop-filter` and `text-match` elements.
 
@@ -575,15 +634,20 @@ default = "personal"
 
 ## Implementation Phases
 
-**Phase 1 — Core store:** Define all Rust types in `core`. Implement `store-sqlite`. Write unit tests for fact ingestion, supersession, retraction, and `materialize`. No HTTP yet.
+**Phase 1 — Core store** ✅
+Define all Rust types in `kith-core`. Implement `kith-store-sqlite`. Write unit tests for fact ingestion, supersession, retraction, and `materialize`. No HTTP yet.
 
-**Phase 2 — vCard codec:** Implement vCard 3.0 and 4.0 parsing and serialization in the `vcard` crate. Map the full fact taxonomy to vCard fields. Fuzz the parser.
+**Phase 2 — vCard codec:**
+Implement vCard 3.0 and 4.0 parsing and serialization in `kith-vcard`. Map the full fact taxonomy to vCard fields. Fuzz the parser.
 
-**Phase 3 — CardDAV server:** Implement the axum handlers in `carddav`. Support `PROPFIND`, `GET`, `PUT`, `DELETE`. Test with `curl` and then with a real client (Apple Contacts or DAVx⁵).
+**Phase 3 — CardDAV server:**
+Implement axum handlers in `kith-carddav`. Support `PROPFIND`, `GET`, `PUT`, `DELETE`. Test with `curl` and then with a real client (Apple Contacts or DAVx⁵).
 
-**Phase 4 — REPORT and search:** Implement `addressbook-query` and `addressbook-multiget`. Add FTS5.
+**Phase 4 — REPORT and search:**
+Implement `addressbook-query` and `addressbook-multiget`. Add FTS5.
 
-**Phase 5 — CLI:** A `contact` CLI for importing/exporting vCards, inspecting history, querying facts by date, and managing subjects without a CardDAV client.
+**Phase 5 — CLI:**
+A `kith` CLI for importing/exporting vCards, inspecting history, querying facts by date, and managing subjects without a CardDAV client.
 
 ---
 
@@ -593,8 +657,12 @@ default = "personal"
 
 **Single address book:** One address book for now (`personal`). The schema does not need an `addressbook_id` column at this stage; the path `/dav/addressbooks/personal/` is the only collection.
 
-**Relationship facts and CardDAV:** Exposed via the `X-KITH-RELATION` custom vCard property. Full relationship querying is only available through the native API.
+**Relationship, social, and group facts and CardDAV:** `relationship` is exposed via `X-KITH-RELATION`, `social` via `X-KITH-SOCIAL`, and `group_membership` via `X-KITH-GROUP` custom vCard properties. Full querying of these is only available through the native API.
 
-**Photo storage:** Photos live on disk at `{photo_dir}/{subject_id}/{content_hash}.{ext}`. The `PhotoValue` fact stores the relative path, content hash (SHA-256), and MIME type. The hash enables deduplication (two subjects can share a file by hash) and is used as a component of the ETag. No photo data is stored in SQLite.
+**Photo storage:** Photos live on disk at `{photo_dir}/{subject_id}/{content_hash}.{ext}`. The `PhotoValue` fact stores the relative path as a `String` (not `PathBuf` — serde compatibility), the SHA-256 content hash, and the MIME type. The hash enables deduplication and is used as a component of the ETag. No photo data is stored in SQLite.
 
-**Import provenance:** The `RecordingContext::Imported` variant carries `source_name` and `original_uid`. This threads through every fact ingested via the import tool or a CardDAV PUT, so the full history of where information came from is always queryable.
+**Import provenance:** The `RecordingContext::Imported` variant carries `source_name` and `original_uid`. This threads through every fact ingested via the import tool or a CardDAV PUT, so the full history of where information came from is always queryable. Stored as JSON in the `recording_context` column.
+
+**Native async fn in traits:** `ContactStore` uses native `async fn` in traits (stable since Rust 1.75, no `async_trait` macro required) with an associated `type Error`. This avoids the boxing overhead of `async_trait` while keeping the backend swappable.
+
+**Error types:** Each crate defines its own `Error` enum via `thiserror`. `kith-store-sqlite::Error` wraps `tokio_rusqlite::Error`, `serde_json::Error`, and `uuid::Error`, and defines domain-level variants (`FactNotFound`, `AlreadySuperseded`, `AlreadyRetracted`, `SelfSupersession`, `SubjectNotFound`).

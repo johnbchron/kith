@@ -1,0 +1,10 @@
+[package]
+name    = "kith-vcard"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kith-core  = { path = "../kith-core" }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
