@@ -39,10 +39,11 @@ pub enum Confidence {
 }
 
 /// How and where this fact entered the store.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RecordingContext {
   /// Typed in by the user directly.
+  #[default]
   Manual,
   /// Ingested from an external system (vCard import, CardDAV PUT, etc.).
   Imported {
@@ -51,10 +52,6 @@ pub enum RecordingContext {
     /// The UID from the originating vCard, if available.
     original_uid: Option<String>,
   },
-}
-
-impl Default for RecordingContext {
-  fn default() -> Self { Self::Manual }
 }
 
 // ─── Labels ──────────────────────────────────────────────────────────────────

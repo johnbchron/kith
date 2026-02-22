@@ -178,8 +178,12 @@ impl ContactStore for SqliteStore {
   // ── Subjects ──────────────────────────────────────────────────────────────
 
   async fn add_subject(&self, kind: SubjectKind) -> Result<Subject> {
+    self.add_subject_with_id(Uuid::new_v4(), kind).await
+  }
+
+  async fn add_subject_with_id(&self, id: Uuid, kind: SubjectKind) -> Result<Subject> {
     let subject = Subject {
-      subject_id: Uuid::new_v4(),
+      subject_id: id,
       created_at: Utc::now(),
       kind,
     };

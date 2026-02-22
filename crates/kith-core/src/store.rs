@@ -4,6 +4,8 @@
 //! Higher layers (`kith-carddav`, `kith-cli`) depend on this abstraction, not
 //! on any concrete backend.
 
+use std::future::Future;
+
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
@@ -40,28 +42,50 @@ pub struct FactQuery {
 /// All write operations on facts are append-only. Mutations are expressed as
 /// lifecycle events (supersession, retraction), which are themselves
 /// append-only.
+///
+/// All methods return `Send` futures so the trait can be used in multi-threaded
+/// async runtimes (e.g. tokio with `axum`).
 pub trait ContactStore: Send + Sync {
   type Error: std::error::Error + Send + Sync + 'static;
 
   // ── Subjects ──────────────────────────────────────────────────────────
 
   /// Create and persist a new subject with the given kind.
-  async fn add_subject(&self, kind: SubjectKind) -> Result<Subject, Self::Error>;
+  fn add_subject(
+    &self,
+    kind: SubjectKind,
+  ) -> impl Future<Output = Result<Subject, Self::Error>> + Send + '_;
+
+  /// Create and persist a subject with a caller-supplied UUID.
+  ///
+  /// Used by the CardDAV PUT handler to ensure the subject UUID matches the
+  /// URL path. Returns an error if the UUID is already taken.
+  fn add_subject_with_id(
+    &self,
+    id:   Uuid,
+    kind: SubjectKind,
+  ) -> impl Future<Output = Result<Subject, Self::Error>> + Send + '_;
 
   /// Retrieve a subject by UUID. Returns `None` if not found.
-  async fn get_subject(&self, id: Uuid) -> Result<Option<Subject>, Self::Error>;
+  fn get_subject(
+    &self,
+    id: Uuid,
+  ) -> impl Future<Output = Result<Option<Subject>, Self::Error>> + Send + '_;
 
   /// List all subjects, optionally filtered by kind.
-  async fn list_subjects(
+  fn list_subjects(
     &self,
     kind: Option<SubjectKind>,
-  ) -> Result<Vec<Subject>, Self::Error>;
+  ) -> impl Future<Output = Result<Vec<Subject>, Self::Error>> + Send + '_;
 
   // ── Facts — append-only writes ────────────────────────────────────────
 
   /// Record a new fact and return the persisted [`Fact`](crate::fact::Fact).
   /// The `recorded_at` timestamp is set by the store.
-  async fn record_fact(&self, input: NewFact) -> Result<crate::fact::Fact, Self::Error>;
+  fn record_fact(
+    &self,
+    input: NewFact,
+  ) -> impl Future<Output = Result<crate::fact::Fact, Self::Error>> + Send + '_;
 
   // ── Lifecycle events ──────────────────────────────────────────────────
 
@@ -69,20 +93,20 @@ pub trait ContactStore: Send + Sync {
   ///
   /// Returns an error if `old_id` is already superseded or retracted, or if
   /// `old_id == replacement.fact_id` (self-supersession).
-  async fn supersede(
+  fn supersede(
     &self,
     old_id:      Uuid,
     replacement: NewFact,
-  ) -> Result<(Supersession, crate::fact::Fact), Self::Error>;
+  ) -> impl Future<Output = Result<(Supersession, crate::fact::Fact), Self::Error>> + Send + '_;
 
   /// Retract a fact entirely (no replacement).
   ///
   /// Returns an error if the fact is already superseded or retracted.
-  async fn retract(
+  fn retract(
     &self,
     fact_id: Uuid,
     reason:  Option<String>,
-  ) -> Result<Retraction, Self::Error>;
+  ) -> impl Future<Output = Result<Retraction, Self::Error>> + Send + '_;
 
   // ── Reads ─────────────────────────────────────────────────────────────
 
@@ -90,22 +114,25 @@ pub trait ContactStore: Send + Sync {
   ///
   /// - `as_of`: point-in-time filter on `recorded_at`; defaults to now.
   /// - `include_inactive`: if `false`, only `Active` facts are returned.
-  async fn get_facts(
+  fn get_facts(
     &self,
     subject_id:       Uuid,
     as_of:            Option<DateTime<Utc>>,
     include_inactive: bool,
-  ) -> Result<Vec<ResolvedFact>, Self::Error>;
+  ) -> impl Future<Output = Result<Vec<ResolvedFact>, Self::Error>> + Send + '_;
 
   /// Materialise a [`ContactView`] — the computed, current-state read model
   /// for a subject. Returns `None` if the subject does not exist.
-  async fn materialize(
+  fn materialize(
     &self,
     subject_id: Uuid,
     as_of:      Option<DateTime<Utc>>,
-  ) -> Result<Option<ContactView>, Self::Error>;
+  ) -> impl Future<Output = Result<Option<ContactView>, Self::Error>> + Send + '_;
 
   /// Search for subjects matching `query`. Phase-1 implementation uses SQL
   /// LIKE; phase 2 will use FTS5.
-  async fn search(&self, query: &FactQuery) -> Result<Vec<Subject>, Self::Error>;
+  fn search<'a>(
+    &'a self,
+    query: &'a FactQuery,
+  ) -> impl Future<Output = Result<Vec<Subject>, Self::Error>> + Send + 'a;
 }
