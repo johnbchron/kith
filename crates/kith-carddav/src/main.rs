@@ -65,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
 
   // Load configuration.
   let settings = config::Config::builder()
-    .add_source(config::File::from(cli.config))
+    .add_source(config::File::from(cli.config).required(false))
     .add_source(config::Environment::with_prefix("KITH"))
     .build()
     .context("failed to read config file")?;
