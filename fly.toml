@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for kith on 2026-02-22T23:51:12-08:00
+# fly.toml app configuration file generated for johnandmaritza on 2026-02-17T12:16:12-08:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -8,13 +8,27 @@ primary_region = 'dfw'
 swap_size_mb = 2048
 
 [build]
-  image = 'kith:latest'
+image = 'kith:latest'
 
 [http_service]
-  internal_port = 5232
-  auto_stop_machines = 'off'
-  auto_start_machines = false
-  min_machines_running = 0
+auto_start_machines = false
+auto_stop_machines = 'off'
+internal_port = 5232
+min_machines_running = 0
+
+[env]
+KITH_ADDRESSBOOK = "personal"
+KITH_AUTH_PASSWORD_HASH = "$argon2id$v=19$m=19456,t=2,p=1$tdUU2bctCehhlxe6Mfwv5g$muup0JLA8lJyl7UVfqvKsnGKG+zOU59W/kyLIlbWBak"
+KITH_AUTH_USERNAME = "johnbchron"
+KITH_BASE_URL = "https://contacts.jlewis.sh"
+KITH_HOST = "[::]"
+KITH_PORT = "5232"
+KITH_STORE_PATH = "/data"
+
+[mounts]
+destination = "/data"
+initial_size = "1gb"
+source = "kith_data"
 
 [[vm]]
-  size = 'shared-cpu-1x'
+size = 'shared-cpu-1x'
