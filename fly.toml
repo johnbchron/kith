@@ -14,7 +14,7 @@ image = 'kith:latest'
 auto_start_machines = false
 auto_stop_machines = 'off'
 internal_port = 5232
-min_machines_running = 0
+min_machines_running = 1
 
 [env]
 KITH_ADDRESSBOOK = "personal"
