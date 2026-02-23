@@ -6,13 +6,12 @@
 //! JSON. UUIDs are stored as hyphenated lowercase strings.
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
-
 use kith_core::{
   fact::{Confidence, EffectiveDate, Fact, FactValue, RecordingContext},
   lifecycle::{FactStatus, ResolvedFact, Retraction, Supersession},
   subject::{Subject, SubjectKind},
 };
+use uuid::Uuid;
 
 use crate::{Error, Result};
 
@@ -22,7 +21,8 @@ pub fn encode_uuid(id: Uuid) -> String { id.hyphenated().to_string() }
 
 pub fn decode_uuid(s: &str) -> Result<Uuid> { Ok(Uuid::parse_str(s)?) }
 
-// ─── DateTime<Utc> ────────────────────────────────────────────────────────────
+// ─── DateTime<Utc>
+// ────────────────────────────────────────────────────────────
 
 pub fn encode_dt(dt: DateTime<Utc>) -> String { dt.to_rfc3339() }
 
@@ -32,26 +32,28 @@ pub fn decode_dt(s: &str) -> Result<DateTime<Utc>> {
     .map_err(|e| Error::DateParse(e.to_string()))
 }
 
-// ─── SubjectKind ──────────────────────────────────────────────────────────────
+// ─── SubjectKind
+// ──────────────────────────────────────────────────────────────
 
 pub fn encode_subject_kind(k: SubjectKind) -> &'static str {
   match k {
-    SubjectKind::Person       => "person",
+    SubjectKind::Person => "person",
     SubjectKind::Organization => "organization",
-    SubjectKind::Group        => "group",
+    SubjectKind::Group => "group",
   }
 }
 
 pub fn decode_subject_kind(s: &str) -> Result<SubjectKind> {
   match s {
-    "person"       => Ok(SubjectKind::Person),
+    "person" => Ok(SubjectKind::Person),
     "organization" => Ok(SubjectKind::Organization),
-    "group"        => Ok(SubjectKind::Group),
-    other          => Err(Error::DateParse(format!("unknown subject kind: {other:?}"))),
+    "group" => Ok(SubjectKind::Group),
+    other => Err(Error::DateParse(format!("unknown subject kind: {other:?}"))),
   }
 }
 
-// ─── EffectiveDate ────────────────────────────────────────────────────────────
+// ─── EffectiveDate
+// ────────────────────────────────────────────────────────────
 
 pub fn encode_effective_date(d: &EffectiveDate) -> Result<String> {
   Ok(serde_json::to_string(d)?)
@@ -61,26 +63,28 @@ pub fn decode_effective_date(s: &str) -> Result<EffectiveDate> {
   Ok(serde_json::from_str(s)?)
 }
 
-// ─── Confidence ───────────────────────────────────────────────────────────────
+// ─── Confidence
+// ───────────────────────────────────────────────────────────────
 
 pub fn encode_confidence(c: Confidence) -> &'static str {
   match c {
-    Confidence::Certain  => "certain",
+    Confidence::Certain => "certain",
     Confidence::Probable => "probable",
-    Confidence::Rumored  => "rumored",
+    Confidence::Rumored => "rumored",
   }
 }
 
 pub fn decode_confidence(s: &str) -> Result<Confidence> {
   match s {
-    "certain"  => Ok(Confidence::Certain),
+    "certain" => Ok(Confidence::Certain),
     "probable" => Ok(Confidence::Probable),
-    "rumored"  => Ok(Confidence::Rumored),
-    other      => Err(Error::DateParse(format!("unknown confidence: {other:?}"))),
+    "rumored" => Ok(Confidence::Rumored),
+    other => Err(Error::DateParse(format!("unknown confidence: {other:?}"))),
   }
 }
 
-// ─── RecordingContext ─────────────────────────────────────────────────────────
+// ─── RecordingContext
+// ─────────────────────────────────────────────────────────
 
 pub fn encode_recording_context(rc: &RecordingContext) -> Result<String> {
   Ok(serde_json::to_string(rc)?)
@@ -126,8 +130,8 @@ pub struct RawResolvedFact {
 
 impl RawResolvedFact {
   pub fn into_resolved(self) -> Result<ResolvedFact> {
-    let fact_id     = decode_uuid(&self.fact_id)?;
-    let subject_id  = decode_uuid(&self.subject_id)?;
+    let fact_id = decode_uuid(&self.fact_id)?;
+    let subject_id = decode_uuid(&self.subject_id)?;
     let recorded_at = decode_dt(&self.recorded_at)?;
 
     let value_json: serde_json::Value = serde_json::from_str(&self.value_json)?;
@@ -145,9 +149,9 @@ impl RawResolvedFact {
       .map(decode_effective_date)
       .transpose()?;
 
-    let confidence        = decode_confidence(&self.confidence)?;
+    let confidence = decode_confidence(&self.confidence)?;
     let recording_context = decode_recording_context(&self.recording_context)?;
-    let tags              = decode_tags(&self.tags)?;
+    let tags = decode_tags(&self.tags)?;
 
     let fact = Fact {
       fact_id,

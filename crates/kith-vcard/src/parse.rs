@@ -8,17 +8,17 @@
 //!                    └─ flush accumulators → Vec<NewFact>
 
 use chrono::NaiveDate;
-use uuid::Uuid;
-
 use kith_core::fact::{
-  AddressValue, AliasValue, ContactLabel, EmailValue, FactValue, GroupMembershipValue, ImValue,
-  MeetingValue, NameValue, NewFact, OrgMembershipValue, PhoneKind, PhoneValue, RecordingContext,
+  AddressValue, AliasValue, ContactLabel, EmailValue, FactValue,
+  GroupMembershipValue, ImValue, MeetingValue, NameValue, NewFact,
+  OrgMembershipValue, PhoneKind, PhoneValue, RecordingContext,
   RelationshipValue, SocialValue, UrlContext, UrlValue,
 };
+use uuid::Uuid;
 
 use crate::{
-  error::{Error, Result},
   ParsedVcard,
+  error::{Error, Result},
 };
 
 // ─── Content-line representation ─────────────────────────────────────────────
@@ -34,7 +34,8 @@ struct Param {
   value: String,
 }
 
-// ─── Low-level helpers ────────────────────────────────────────────────────────
+// ─── Low-level helpers
+// ────────────────────────────────────────────────────────
 
 /// Join CRLF+SP (or LF+SP / LF+HT) continuation lines (RFC 6350 §3.2).
 /// Tolerates bare LF line endings for real-world robustness.
@@ -108,7 +109,9 @@ fn type_values(params: &[Param]) -> Vec<String> {
 fn pref_from_params(params: &[Param], types: &[String]) -> u8 {
   // v4 PREF=N
   for p in params {
-    if p.name.eq_ignore_ascii_case("PREF") && let Ok(n) = p.value.parse::<u8>() {
+    if p.name.eq_ignore_ascii_case("PREF")
+      && let Ok(n) = p.value.parse::<u8>()
+    {
       return n;
     }
   }
@@ -175,11 +178,12 @@ fn decode_quoted_printable(s: &str) -> String {
   String::from_utf8_lossy(&result).into_owned()
 }
 
-// ─── Content-line parser ──────────────────────────────────────────────────────
+// ─── Content-line parser
+// ──────────────────────────────────────────────────────
 
 fn parse_content_line(line: &str) -> Result<ContentLine> {
-  let colon_pos =
-    find_unquoted_colon(line).ok_or_else(|| Error::MalformedContentLine(line.to_string()))?;
+  let colon_pos = find_unquoted_colon(line)
+    .ok_or_else(|| Error::MalformedContentLine(line.to_string()))?;
 
   let name_part = &line[..colon_pos];
   let value = line[colon_pos + 1..].to_string();
@@ -201,21 +205,32 @@ fn parse_content_line(line: &str) -> Result<ContentLine> {
   for token in &tokens[1..] {
     if let Some(eq_pos) = token.find('=') {
       let param_name = token[..eq_pos].trim().to_uppercase();
-      let param_val  = token[eq_pos + 1..].trim().trim_matches('"').to_string();
-      params.push(Param { name: param_name, value: param_val });
+      let param_val = token[eq_pos + 1..].trim().trim_matches('"').to_string();
+      params.push(Param {
+        name:  param_name,
+        value: param_val,
+      });
     } else {
       // Bare token — treat as TYPE=value (vCard 3.0 compat)
       let t = token.trim();
       if !t.is_empty() {
-        params.push(Param { name: "TYPE".to_string(), value: t.to_uppercase() });
+        params.push(Param {
+          name:  "TYPE".to_string(),
+          value: t.to_uppercase(),
+        });
       }
     }
   }
 
-  Ok(ContentLine { name, params, value })
+  Ok(ContentLine {
+    name,
+    params,
+    value,
+  })
 }
 
-// ─── Accumulators ─────────────────────────────────────────────────────────────
+// ─── Accumulators
+// ─────────────────────────────────────────────────────────────
 
 #[derive(Default)]
 struct NameAccum {
@@ -243,19 +258,33 @@ impl NameAccum {
     }
     let full = self.full.clone().or_else(|| {
       let mut parts: Vec<String> = Vec::new();
-      if let Some(ref p) = self.prefix    { parts.push(p.clone()); }
-      if let Some(ref g) = self.given     { parts.push(g.clone()); }
-      if let Some(ref a) = self.additional { parts.push(a.clone()); }
-      if let Some(ref f) = self.family    { parts.push(f.clone()); }
-      if let Some(ref s) = self.suffix    { parts.push(s.clone()); }
-      if parts.is_empty() { None } else { Some(parts.join(" ")) }
+      if let Some(ref p) = self.prefix {
+        parts.push(p.clone());
+      }
+      if let Some(ref g) = self.given {
+        parts.push(g.clone());
+      }
+      if let Some(ref a) = self.additional {
+        parts.push(a.clone());
+      }
+      if let Some(ref f) = self.family {
+        parts.push(f.clone());
+      }
+      if let Some(ref s) = self.suffix {
+        parts.push(s.clone());
+      }
+      if parts.is_empty() {
+        None
+      } else {
+        Some(parts.join(" "))
+      }
     })?;
     Some(FactValue::Name(NameValue {
-      given:      self.given,
-      family:     self.family,
+      given: self.given,
+      family: self.family,
       additional: self.additional,
-      prefix:     self.prefix,
-      suffix:     self.suffix,
+      prefix: self.prefix,
+      suffix: self.suffix,
       full,
     }))
   }
@@ -268,7 +297,8 @@ struct OrgGroup {
   role:     Option<String>,
 }
 
-// ─── Value helpers ────────────────────────────────────────────────────────────
+// ─── Value helpers
+// ────────────────────────────────────────────────────────────
 
 fn unescape_value(s: &str) -> String {
   let mut result = String::with_capacity(s.len());
@@ -277,11 +307,14 @@ fn unescape_value(s: &str) -> String {
     if c == '\\' {
       match chars.next() {
         Some('n') | Some('N') => result.push('\n'),
-        Some('\\')            => result.push('\\'),
-        Some(',')             => result.push(','),
-        Some(';')             => result.push(';'),
-        Some(other)           => { result.push('\\'); result.push(other); }
-        None                  => result.push('\\'),
+        Some('\\') => result.push('\\'),
+        Some(',') => result.push(','),
+        Some(';') => result.push(';'),
+        Some(other) => {
+          result.push('\\');
+          result.push(other);
+        }
+        None => result.push('\\'),
       }
     } else {
       result.push(c);
@@ -293,21 +326,25 @@ fn unescape_value(s: &str) -> String {
 /// Return `Some(trimmed)` when non-empty, `None` otherwise.
 fn opt_str(s: &str) -> Option<String> {
   let s = s.trim();
-  if s.is_empty() { None } else { Some(s.to_string()) }
+  if s.is_empty() {
+    None
+  } else {
+    Some(s.to_string())
+  }
 }
 
 fn scheme_to_service(scheme: &str) -> String {
   match scheme.to_lowercase().as_str() {
     "xmpp" | "jabber" => "XMPP".to_string(),
-    "sip"             => "SIP".to_string(),
-    "aim"             => "AIM".to_string(),
-    "ymsgr"           => "Yahoo".to_string(),
-    "msnim"           => "MSN".to_string(),
-    "gtalk"           => "Google Talk".to_string(),
-    "skype"           => "Skype".to_string(),
-    "irc"             => "IRC".to_string(),
-    "matrix"          => "Matrix".to_string(),
-    other             => other.to_string(),
+    "sip" => "SIP".to_string(),
+    "aim" => "AIM".to_string(),
+    "ymsgr" => "Yahoo".to_string(),
+    "msnim" => "MSN".to_string(),
+    "gtalk" => "Google Talk".to_string(),
+    "skype" => "Skype".to_string(),
+    "irc" => "IRC".to_string(),
+    "matrix" => "Matrix".to_string(),
+    other => other.to_string(),
   }
 }
 
@@ -332,15 +369,15 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
     return Err(Error::MissingEnvelope);
   }
 
-  let mut uid:        Option<String> = None;
-  let mut name_accum  = NameAccum::default();
-  let mut org_groups: Vec<OrgGroup>  = Vec::new();
-  let mut facts:      Vec<FactValue> = Vec::new();
+  let mut uid: Option<String> = None;
+  let mut name_accum = NameAccum::default();
+  let mut org_groups: Vec<OrgGroup> = Vec::new();
+  let mut facts: Vec<FactValue> = Vec::new();
 
   for line in &lines[start + 1..end] {
     let cl = match parse_content_line(line) {
-      Ok(cl)  => cl,
-      Err(_)  => continue, // skip malformed lines
+      Ok(cl) => cl,
+      Err(_) => continue, // skip malformed lines
     };
 
     // Apply ENCODING=QUOTED-PRINTABLE if present
@@ -349,11 +386,15 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
         p.name.eq_ignore_ascii_case("ENCODING")
           && p.value.eq_ignore_ascii_case("QUOTED-PRINTABLE")
       });
-      if is_qp { decode_quoted_printable(&cl.value) } else { cl.value.clone() }
+      if is_qp {
+        decode_quoted_printable(&cl.value)
+      } else {
+        cl.value.clone()
+      }
     };
 
     let types = type_values(&cl.params);
-    let pref  = pref_from_params(&cl.params, &types);
+    let pref = pref_from_params(&cl.params, &types);
     let label = label_from_types(&types);
 
     match cl.name.as_str() {
@@ -372,17 +413,35 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
       "N" => {
         // family;given;additional;prefix;suffix
         let parts: Vec<&str> = value.split(';').collect();
-        name_accum.family     = parts.first()       .and_then(|s| opt_str(s)).map(|s| unescape_value(&s));
-        name_accum.given      = parts.get(1)        .and_then(|s| opt_str(s)).map(|s| unescape_value(&s));
-        name_accum.additional = parts.get(2)        .and_then(|s| opt_str(s)).map(|s| unescape_value(&s));
-        name_accum.prefix     = parts.get(3)        .and_then(|s| opt_str(s)).map(|s| unescape_value(&s));
-        name_accum.suffix     = parts.get(4)        .and_then(|s| opt_str(s)).map(|s| unescape_value(&s));
+        name_accum.family = parts
+          .first()
+          .and_then(|s| opt_str(s))
+          .map(|s| unescape_value(&s));
+        name_accum.given = parts
+          .get(1)
+          .and_then(|s| opt_str(s))
+          .map(|s| unescape_value(&s));
+        name_accum.additional = parts
+          .get(2)
+          .and_then(|s| opt_str(s))
+          .map(|s| unescape_value(&s));
+        name_accum.prefix = parts
+          .get(3)
+          .and_then(|s| opt_str(s))
+          .map(|s| unescape_value(&s));
+        name_accum.suffix = parts
+          .get(4)
+          .and_then(|s| opt_str(s))
+          .map(|s| unescape_value(&s));
       }
       "NICKNAME" => {
         for token in value.split(',') {
           let name = unescape_value(token.trim());
           if !name.is_empty() {
-            facts.push(FactValue::Alias(AliasValue { name, context: None }));
+            facts.push(FactValue::Alias(AliasValue {
+              name,
+              context: None,
+            }));
           }
         }
       }
@@ -390,8 +449,12 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
       // ── Contact methods ───────────────────────────────────────────────────
       "TEL" => {
         let number = unescape_value(value.trim());
-        if number.is_empty() { continue; }
-        let kind = if types.contains(&"CELL".to_string()) || types.contains(&"MOBILE".to_string()) {
+        if number.is_empty() {
+          continue;
+        }
+        let kind = if types.contains(&"CELL".to_string())
+          || types.contains(&"MOBILE".to_string())
+        {
           PhoneKind::Cell
         } else if types.contains(&"FAX".to_string()) {
           PhoneKind::Fax
@@ -404,35 +467,75 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
         } else {
           PhoneKind::Voice
         };
-        facts.push(FactValue::Phone(PhoneValue { number, label, kind, preference: pref }));
+        facts.push(FactValue::Phone(PhoneValue {
+          number,
+          label,
+          kind,
+          preference: pref,
+        }));
       }
       "EMAIL" => {
         let address = unescape_value(value.trim());
-        if address.is_empty() { continue; }
-        facts.push(FactValue::Email(EmailValue { address, label, preference: pref }));
+        if address.is_empty() {
+          continue;
+        }
+        facts.push(FactValue::Email(EmailValue {
+          address,
+          label,
+          preference: pref,
+        }));
       }
       "ADR" => {
         // pobox;ext;street;city;region;postal;country
         let parts: Vec<&str> = value.split(';').collect();
         // fields 0 (pobox) and 1 (ext) are discarded per the spec mapping
-        let street      = parts.get(2).and_then(|s| opt_str(s)).map(|s| unescape_value(&s));
-        let locality    = parts.get(3).and_then(|s| opt_str(s)).map(|s| unescape_value(&s));
-        let region      = parts.get(4).and_then(|s| opt_str(s)).map(|s| unescape_value(&s));
-        let postal_code = parts.get(5).and_then(|s| opt_str(s)).map(|s| unescape_value(&s));
-        let country     = parts.get(6).and_then(|s| opt_str(s)).map(|s| unescape_value(&s));
-        facts.push(FactValue::Address(AddressValue { label, street, locality, region, postal_code, country }));
+        let street = parts
+          .get(2)
+          .and_then(|s| opt_str(s))
+          .map(|s| unescape_value(&s));
+        let locality = parts
+          .get(3)
+          .and_then(|s| opt_str(s))
+          .map(|s| unescape_value(&s));
+        let region = parts
+          .get(4)
+          .and_then(|s| opt_str(s))
+          .map(|s| unescape_value(&s));
+        let postal_code = parts
+          .get(5)
+          .and_then(|s| opt_str(s))
+          .map(|s| unescape_value(&s));
+        let country = parts
+          .get(6)
+          .and_then(|s| opt_str(s))
+          .map(|s| unescape_value(&s));
+        facts.push(FactValue::Address(AddressValue {
+          label,
+          street,
+          locality,
+          region,
+          postal_code,
+          country,
+        }));
       }
       "URL" => {
         let url = value.trim().to_string();
-        if url.is_empty() { continue; }
-        let context = if types.iter().any(|t| t.eq_ignore_ascii_case("LINKEDIN"))
-          || url.contains("linkedin.com") {
+        if url.is_empty() {
+          continue;
+        }
+        let context = if types
+          .iter()
+          .any(|t| t.eq_ignore_ascii_case("LINKEDIN"))
+          || url.contains("linkedin.com")
+        {
           UrlContext::LinkedIn
         } else if types.iter().any(|t| t.eq_ignore_ascii_case("GITHUB"))
-          || url.contains("github.com") {
+          || url.contains("github.com")
+        {
           UrlContext::GitHub
         } else if types.iter().any(|t| t.eq_ignore_ascii_case("MASTODON"))
-          || url.contains("mastodon") {
+          || url.contains("mastodon")
+        {
           UrlContext::Mastodon
         } else {
           let type_val = types
@@ -441,7 +544,7 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
             .cloned();
           match type_val.as_deref() {
             Some(t) => UrlContext::Custom(t.to_string()),
-            None    => UrlContext::Homepage,
+            None => UrlContext::Homepage,
           }
         };
         facts.push(FactValue::Url(UrlValue { url, context }));
@@ -450,18 +553,18 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
       // ── Dates ─────────────────────────────────────────────────────────────
       "BDAY" => {
         match parse_vcard_date("BDAY", &value) {
-          Ok(d)                                           => facts.push(FactValue::Birthday(d)),
-          Err(Error::InvalidDate { ref value, .. }) if value.starts_with("--") => {} // year-omitted
+          Ok(d) => facts.push(FactValue::Birthday(d)),
+          Err(Error::InvalidDate { ref value, .. })
+            if value.starts_with("--") => {} // year-omitted
           Err(_) => {} // other parse errors skipped silently
         }
       }
-      "ANNIVERSARY" => {
-        match parse_vcard_date("ANNIVERSARY", &value) {
-          Ok(d)                                           => facts.push(FactValue::Anniversary(d)),
-          Err(Error::InvalidDate { ref value, .. }) if value.starts_with("--") => {}
-          Err(_) => {}
-        }
-      }
+      "ANNIVERSARY" => match parse_vcard_date("ANNIVERSARY", &value) {
+        Ok(d) => facts.push(FactValue::Anniversary(d)),
+        Err(Error::InvalidDate { ref value, .. })
+          if value.starts_with("--") => {}
+        Err(_) => {}
+      },
 
       // ── Demographics ──────────────────────────────────────────────────────
       "GENDER" => {
@@ -473,9 +576,14 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
 
       // ── Org / role ────────────────────────────────────────────────────────
       "ORG" => {
-        let org_name = unescape_value(value.split(';').next().unwrap_or(&value).trim());
+        let org_name =
+          unescape_value(value.split(';').next().unwrap_or(&value).trim());
         if !org_name.is_empty() {
-          org_groups.push(OrgGroup { org_name, title: None, role: None });
+          org_groups.push(OrgGroup {
+            org_name,
+            title: None,
+            role: None,
+          });
         }
       }
       "TITLE" => {
@@ -484,7 +592,11 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
           if let Some(last) = org_groups.last_mut() {
             last.title = Some(title);
           } else {
-            org_groups.push(OrgGroup { org_name: String::new(), title: Some(title), role: None });
+            org_groups.push(OrgGroup {
+              org_name: String::new(),
+              title:    Some(title),
+              role:     None,
+            });
           }
         }
       }
@@ -494,7 +606,11 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
           if let Some(last) = org_groups.last_mut() {
             last.role = Some(role);
           } else {
-            org_groups.push(OrgGroup { org_name: String::new(), title: None, role: Some(role) });
+            org_groups.push(OrgGroup {
+              org_name: String::new(),
+              title:    None,
+              role:     Some(role),
+            });
           }
         }
       }
@@ -509,9 +625,14 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
       "PHOTO" => {
         let is_base64 = cl.params.iter().any(|p| {
           p.name.eq_ignore_ascii_case("ENCODING")
-            && (p.value.eq_ignore_ascii_case("BASE64") || p.value.eq_ignore_ascii_case("b"))
+            && (p.value.eq_ignore_ascii_case("BASE64")
+              || p.value.eq_ignore_ascii_case("b"))
         });
-        if !is_base64 && (value.starts_with("http") || value.starts_with("file://") || value.starts_with("cid:")) {
+        if !is_base64
+          && (value.starts_with("http")
+            || value.starts_with("file://")
+            || value.starts_with("cid:"))
+        {
           let uri = value.trim().to_string();
           if !uri.is_empty() {
             facts.push(FactValue::Custom {
@@ -536,14 +657,38 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
       }
 
       // ── vCard 3.0 legacy IM X-props ───────────────────────────────────────
-      "X-AIM"         => facts.push(FactValue::Im(ImValue { handle: value.trim().to_string(), service: "AIM".to_string() })),
-      "X-JABBER"      => facts.push(FactValue::Im(ImValue { handle: value.trim().to_string(), service: "XMPP".to_string() })),
-      "X-SKYPE"       => facts.push(FactValue::Im(ImValue { handle: value.trim().to_string(), service: "Skype".to_string() })),
-      "X-SKYPE-USERNAME" => facts.push(FactValue::Im(ImValue { handle: value.trim().to_string(), service: "Skype".to_string() })),
-      "X-ICQ"         => facts.push(FactValue::Im(ImValue { handle: value.trim().to_string(), service: "ICQ".to_string() })),
-      "X-MSN"         => facts.push(FactValue::Im(ImValue { handle: value.trim().to_string(), service: "MSN".to_string() })),
-      "X-YAHOO"       => facts.push(FactValue::Im(ImValue { handle: value.trim().to_string(), service: "Yahoo".to_string() })),
-      "X-GOOGLE-TALK" => facts.push(FactValue::Im(ImValue { handle: value.trim().to_string(), service: "Google Talk".to_string() })),
+      "X-AIM" => facts.push(FactValue::Im(ImValue {
+        handle:  value.trim().to_string(),
+        service: "AIM".to_string(),
+      })),
+      "X-JABBER" => facts.push(FactValue::Im(ImValue {
+        handle:  value.trim().to_string(),
+        service: "XMPP".to_string(),
+      })),
+      "X-SKYPE" => facts.push(FactValue::Im(ImValue {
+        handle:  value.trim().to_string(),
+        service: "Skype".to_string(),
+      })),
+      "X-SKYPE-USERNAME" => facts.push(FactValue::Im(ImValue {
+        handle:  value.trim().to_string(),
+        service: "Skype".to_string(),
+      })),
+      "X-ICQ" => facts.push(FactValue::Im(ImValue {
+        handle:  value.trim().to_string(),
+        service: "ICQ".to_string(),
+      })),
+      "X-MSN" => facts.push(FactValue::Im(ImValue {
+        handle:  value.trim().to_string(),
+        service: "MSN".to_string(),
+      })),
+      "X-YAHOO" => facts.push(FactValue::Im(ImValue {
+        handle:  value.trim().to_string(),
+        service: "Yahoo".to_string(),
+      })),
+      "X-GOOGLE-TALK" => facts.push(FactValue::Im(ImValue {
+        handle:  value.trim().to_string(),
+        service: "Google Talk".to_string(),
+      })),
 
       // ── Kith-specific X-props ─────────────────────────────────────────────
       "X-KITH-SOCIAL" => {
@@ -565,7 +710,10 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
           .find(|p| p.name.eq_ignore_ascii_case("GROUP-ID"))
           .and_then(|p| Uuid::parse_str(&p.value).ok());
         let group_name = unescape_value(value.trim());
-        facts.push(FactValue::GroupMembership(GroupMembershipValue { group_name, group_id }));
+        facts.push(FactValue::GroupMembership(GroupMembershipValue {
+          group_name,
+          group_id,
+        }));
       }
       "X-KITH-RELATION" => {
         let relation = cl
@@ -580,7 +728,11 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
           .find(|p| p.name.eq_ignore_ascii_case("OTHER-ID"))
           .and_then(|p| Uuid::parse_str(&p.value).ok());
         let other_name = opt_str(value.trim());
-        facts.push(FactValue::Relationship(RelationshipValue { relation, other_id, other_name }));
+        facts.push(FactValue::Relationship(RelationshipValue {
+          relation,
+          other_id,
+          other_name,
+        }));
       }
       "X-KITH-MEETING" => {
         let location = cl
@@ -601,7 +753,10 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
       // ── Other X-props → Custom ────────────────────────────────────────────
       other if other.starts_with("X-") => {
         let val = serde_json::Value::String(unescape_value(&value));
-        facts.push(FactValue::Custom { key: other.to_string(), value: val });
+        facts.push(FactValue::Custom {
+          key:   other.to_string(),
+          value: val,
+        });
       }
 
       // ── Unknown IANA properties silently skipped ──────────────────────────
@@ -609,7 +764,8 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
     }
   }
 
-  // ── Flush accumulators ───────────────────────────────────────────────────────
+  // ── Flush accumulators
+  // ───────────────────────────────────────────────────────
   let mut final_facts: Vec<FactValue> = Vec::new();
 
   if let Some(name_fv) = name_accum.flush() {
@@ -625,8 +781,8 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
     final_facts.push(FactValue::OrgMembership(OrgMembershipValue {
       org_name,
       org_id: None,
-      title:  g.title,
-      role:   g.role,
+      title: g.title,
+      role: g.role,
     }));
   }
 
@@ -647,21 +803,24 @@ pub fn parse_one(input: &str, source_name: &str) -> Result<ParsedVcard> {
     })
     .collect();
 
-  Ok(ParsedVcard { uid, facts: new_facts })
+  Ok(ParsedVcard {
+    uid,
+    facts: new_facts,
+  })
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
-  use super::*;
   use kith_core::fact::{FactValue, RecordingContext};
 
-  fn first_fact(card: &ParsedVcard) -> &FactValue {
-    &card.facts[0].value
-  }
+  use super::*;
 
-  // ── Envelope ────────────────────────────────────────────────────────────────
+  fn first_fact(card: &ParsedVcard) -> &FactValue { &card.facts[0].value }
+
+  // ── Envelope
+  // ────────────────────────────────────────────────────────────────
 
   #[test]
   fn missing_envelope_returns_error() {
@@ -675,81 +834,108 @@ mod tests {
     assert!(r.is_err() || r.unwrap().facts.is_empty());
   }
 
-  // ── FN-only → single Name fact ───────────────────────────────────────────────
+  // ── FN-only → single Name fact
+  // ───────────────────────────────────────────────
 
   #[test]
   fn fn_only_becomes_name_fact() {
     let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Alice Smith\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
+    let card = parse_one(input, "test").unwrap();
     assert_eq!(card.facts.len(), 1);
-    let FactValue::Name(n) = first_fact(&card) else { panic!("expected Name") };
+    let FactValue::Name(n) = first_fact(&card) else {
+      panic!("expected Name")
+    };
     assert_eq!(n.full, "Alice Smith");
     assert!(n.family.is_none());
   }
 
-  // ── N + FN → merged single Name fact ────────────────────────────────────────
+  // ── N + FN → merged single Name fact
+  // ────────────────────────────────────────
 
   #[test]
   fn n_and_fn_merged_into_single_name() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Alice Smith\r\nN:Smith;Alice;;;\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let name_facts: Vec<_> = card.facts.iter().filter(|f| matches!(f.value, FactValue::Name(_))).collect();
+    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Alice \
+                 Smith\r\nN:Smith;Alice;;;\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let name_facts: Vec<_> = card
+      .facts
+      .iter()
+      .filter(|f| matches!(f.value, FactValue::Name(_)))
+      .collect();
     assert_eq!(name_facts.len(), 1, "must produce exactly one Name fact");
-    let FactValue::Name(n) = &name_facts[0].value else { panic!() };
-    assert_eq!(n.full,   "Alice Smith");
+    let FactValue::Name(n) = &name_facts[0].value else {
+      panic!()
+    };
+    assert_eq!(n.full, "Alice Smith");
     assert_eq!(n.family, Some("Smith".to_string()));
-    assert_eq!(n.given,  Some("Alice".to_string()));
+    assert_eq!(n.given, Some("Alice".to_string()));
   }
 
-  // ── TEL v4 PREF ─────────────────────────────────────────────────────────────
+  // ── TEL v4 PREF
+  // ─────────────────────────────────────────────────────────────
 
   #[test]
   fn tel_v4_type_and_pref() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nTEL;TYPE=WORK,VOICE;PREF=1:+15555551234\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let FactValue::Phone(p) = first_fact(&card) else { panic!("expected Phone") };
-    assert_eq!(p.number,    "+15555551234");
-    assert_eq!(p.label,     ContactLabel::Work);
-    assert_eq!(p.kind,      PhoneKind::Voice);
+    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nTEL;TYPE=WORK,VOICE;PREF=1:\
+                 +15555551234\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let FactValue::Phone(p) = first_fact(&card) else {
+      panic!("expected Phone")
+    };
+    assert_eq!(p.number, "+15555551234");
+    assert_eq!(p.label, ContactLabel::Work);
+    assert_eq!(p.kind, PhoneKind::Voice);
     assert_eq!(p.preference, 1);
   }
 
-  // ── TEL v3 TYPE=PREF ────────────────────────────────────────────────────────
+  // ── TEL v3 TYPE=PREF
+  // ────────────────────────────────────────────────────────
 
   #[test]
   fn tel_v3_type_pref() {
-    let input = "BEGIN:VCARD\r\nVERSION:3.0\r\nTEL;TYPE=WORK,PREF:+15555559999\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let FactValue::Phone(p) = first_fact(&card) else { panic!("expected Phone") };
+    let input = "BEGIN:VCARD\r\nVERSION:3.0\r\nTEL;TYPE=WORK,PREF:\
+                 +15555559999\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let FactValue::Phone(p) = first_fact(&card) else {
+      panic!("expected Phone")
+    };
     assert_eq!(p.preference, 1);
-    assert_eq!(p.label,      ContactLabel::Work);
+    assert_eq!(p.label, ContactLabel::Work);
   }
 
-  // ── EMAIL preference roundtrip ────────────────────────────────────────────────
+  // ── EMAIL preference roundtrip
+  // ────────────────────────────────────────────────
 
   #[test]
   fn email_with_preference() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nEMAIL;TYPE=WORK;PREF=1:alice@example.com\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let FactValue::Email(e) = first_fact(&card) else { panic!("expected Email") };
-    assert_eq!(e.address,    "alice@example.com");
-    assert_eq!(e.label,      ContactLabel::Work);
+    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nEMAIL;TYPE=WORK;PREF=1:alice@\
+                 example.com\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let FactValue::Email(e) = first_fact(&card) else {
+      panic!("expected Email")
+    };
+    assert_eq!(e.address, "alice@example.com");
+    assert_eq!(e.label, ContactLabel::Work);
     assert_eq!(e.preference, 1);
   }
 
-  // ── ADR 7-field split ────────────────────────────────────────────────────────
+  // ── ADR 7-field split
+  // ────────────────────────────────────────────────────────
 
   #[test]
   fn adr_seven_field_split() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nADR;TYPE=WORK:;;123 Main St;Springfield;IL;62701;USA\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let FactValue::Address(a) = first_fact(&card) else { panic!("expected Address") };
-    assert_eq!(a.street,      Some("123 Main St".to_string()));
-    assert_eq!(a.locality,    Some("Springfield".to_string()));
-    assert_eq!(a.region,      Some("IL".to_string()));
+    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nADR;TYPE=WORK:;;123 Main \
+                 St;Springfield;IL;62701;USA\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let FactValue::Address(a) = first_fact(&card) else {
+      panic!("expected Address")
+    };
+    assert_eq!(a.street, Some("123 Main St".to_string()));
+    assert_eq!(a.locality, Some("Springfield".to_string()));
+    assert_eq!(a.region, Some("IL".to_string()));
     assert_eq!(a.postal_code, Some("62701".to_string()));
-    assert_eq!(a.country,     Some("USA".to_string()));
-    assert_eq!(a.label,       ContactLabel::Work);
+    assert_eq!(a.country, Some("USA".to_string()));
+    assert_eq!(a.label, ContactLabel::Work);
   }
 
   // ── BDAY ────────────────────────────────────────────────────────────────────
@@ -757,49 +943,78 @@ mod tests {
   #[test]
   fn bday_yyyymmdd() {
     let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nBDAY:19900315\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let FactValue::Birthday(d) = first_fact(&card) else { panic!("expected Birthday") };
+    let card = parse_one(input, "test").unwrap();
+    let FactValue::Birthday(d) = first_fact(&card) else {
+      panic!("expected Birthday")
+    };
     assert_eq!(d.to_string(), "1990-03-15");
   }
 
   #[test]
   fn bday_yyyy_mm_dd() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nBDAY:1990-03-15\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let FactValue::Birthday(d) = first_fact(&card) else { panic!("expected Birthday") };
+    let input =
+      "BEGIN:VCARD\r\nVERSION:4.0\r\nBDAY:1990-03-15\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let FactValue::Birthday(d) = first_fact(&card) else {
+      panic!("expected Birthday")
+    };
     assert_eq!(d.to_string(), "1990-03-15");
   }
 
   #[test]
   fn bday_year_omitted_skipped() {
     let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nBDAY:--0315\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
+    let card = parse_one(input, "test").unwrap();
     // --MMDD should be silently skipped; no Birthday fact produced
-    assert!(!card.facts.iter().any(|f| matches!(f.value, FactValue::Birthday(_))));
+    assert!(
+      !card
+        .facts
+        .iter()
+        .any(|f| matches!(f.value, FactValue::Birthday(_)))
+    );
   }
 
-  // ── ORG + TITLE + ROLE ───────────────────────────────────────────────────────
+  // ── ORG + TITLE + ROLE
+  // ───────────────────────────────────────────────────────
 
   #[test]
   fn org_title_role_single_membership() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nORG:Acme Corp\r\nTITLE:Engineer\r\nROLE:IC\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let orgs: Vec<_> = card.facts.iter().filter_map(|f| {
-      if let FactValue::OrgMembership(o) = &f.value { Some(o) } else { None }
-    }).collect();
+    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nORG:Acme \
+                 Corp\r\nTITLE:Engineer\r\nROLE:IC\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let orgs: Vec<_> = card
+      .facts
+      .iter()
+      .filter_map(|f| {
+        if let FactValue::OrgMembership(o) = &f.value {
+          Some(o)
+        } else {
+          None
+        }
+      })
+      .collect();
     assert_eq!(orgs.len(), 1);
-    assert_eq!(orgs[0].org_name,     "Acme Corp");
-    assert_eq!(orgs[0].title,        Some("Engineer".to_string()));
-    assert_eq!(orgs[0].role,         Some("IC".to_string()));
+    assert_eq!(orgs[0].org_name, "Acme Corp");
+    assert_eq!(orgs[0].title, Some("Engineer".to_string()));
+    assert_eq!(orgs[0].role, Some("IC".to_string()));
   }
 
   #[test]
   fn two_orgs_produce_two_memberships() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nORG:Acme\r\nORG:OSF\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let orgs: Vec<_> = card.facts.iter().filter_map(|f| {
-      if let FactValue::OrgMembership(o) = &f.value { Some(o) } else { None }
-    }).collect();
+    let input =
+      "BEGIN:VCARD\r\nVERSION:4.0\r\nORG:Acme\r\nORG:OSF\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let orgs: Vec<_> = card
+      .facts
+      .iter()
+      .filter_map(|f| {
+        if let FactValue::OrgMembership(o) = &f.value {
+          Some(o)
+        } else {
+          None
+        }
+      })
+      .collect();
     assert_eq!(orgs.len(), 2);
     assert_eq!(orgs[0].org_name, "Acme");
     assert_eq!(orgs[1].org_name, "OSF");
@@ -809,107 +1024,139 @@ mod tests {
 
   #[test]
   fn impp_xmpp_uri() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nIMPP:xmpp:alice@jabber.org\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let FactValue::Im(im) = first_fact(&card) else { panic!("expected Im") };
+    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nIMPP:xmpp:alice@jabber.org\r\\
+                 nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let FactValue::Im(im) = first_fact(&card) else {
+      panic!("expected Im")
+    };
     assert_eq!(im.service, "XMPP");
-    assert_eq!(im.handle,  "alice@jabber.org");
+    assert_eq!(im.handle, "alice@jabber.org");
   }
 
   #[test]
   fn x_jabber_legacy() {
-    let input = "BEGIN:VCARD\r\nVERSION:3.0\r\nX-JABBER:bob@jabber.org\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let FactValue::Im(im) = first_fact(&card) else { panic!("expected Im") };
+    let input =
+      "BEGIN:VCARD\r\nVERSION:3.0\r\nX-JABBER:bob@jabber.org\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let FactValue::Im(im) = first_fact(&card) else {
+      panic!("expected Im")
+    };
     assert_eq!(im.service, "XMPP");
-    assert_eq!(im.handle,  "bob@jabber.org");
+    assert_eq!(im.handle, "bob@jabber.org");
   }
 
-  // ── Kith X-props ────────────────────────────────────────────────────────────
+  // ── Kith X-props
+  // ────────────────────────────────────────────────────────────
 
   #[test]
   fn x_kith_social() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nX-KITH-SOCIAL;PLATFORM=Twitter:@alice\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let FactValue::Social(s) = first_fact(&card) else { panic!("expected Social") };
+    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nX-KITH-SOCIAL;PLATFORM=Twitter:\
+                 @alice\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let FactValue::Social(s) = first_fact(&card) else {
+      panic!("expected Social")
+    };
     assert_eq!(s.platform, "Twitter");
-    assert_eq!(s.handle,   "@alice");
+    assert_eq!(s.handle, "@alice");
   }
 
   #[test]
   fn x_kith_group() {
-    let gid   = Uuid::new_v4();
+    let gid = Uuid::new_v4();
     let input = format!(
-      "BEGIN:VCARD\r\nVERSION:4.0\r\nX-KITH-GROUP;GROUP-ID={}:Friends\r\nEND:VCARD\r\n",
+      "BEGIN:VCARD\r\nVERSION:4.0\r\nX-KITH-GROUP;GROUP-ID={}:Friends\r\nEND:\
+       VCARD\r\n",
       gid
     );
     let card = parse_one(&input, "test").unwrap();
-    let FactValue::GroupMembership(g) = first_fact(&card) else { panic!("expected GroupMembership") };
+    let FactValue::GroupMembership(g) = first_fact(&card) else {
+      panic!("expected GroupMembership")
+    };
     assert_eq!(g.group_name, "Friends");
-    assert_eq!(g.group_id,   Some(gid));
+    assert_eq!(g.group_id, Some(gid));
   }
 
   #[test]
   fn x_kith_relation() {
-    let oid   = Uuid::new_v4();
+    let oid = Uuid::new_v4();
     let input = format!(
-      "BEGIN:VCARD\r\nVERSION:4.0\r\nX-KITH-RELATION;RELATION=sister;OTHER-ID={}:Jane\r\nEND:VCARD\r\n",
+      "BEGIN:VCARD\r\nVERSION:4.0\r\nX-KITH-RELATION;RELATION=sister;\
+       OTHER-ID={}:Jane\r\nEND:VCARD\r\n",
       oid
     );
     let card = parse_one(&input, "test").unwrap();
-    let FactValue::Relationship(r) = first_fact(&card) else { panic!("expected Relationship") };
-    assert_eq!(r.relation,  "sister");
-    assert_eq!(r.other_id,  Some(oid));
+    let FactValue::Relationship(r) = first_fact(&card) else {
+      panic!("expected Relationship")
+    };
+    assert_eq!(r.relation, "sister");
+    assert_eq!(r.other_id, Some(oid));
     assert_eq!(r.other_name, Some("Jane".to_string()));
   }
 
   #[test]
   fn x_kith_meeting() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nX-KITH-MEETING;LOCATION=Coffee Shop:Intro call\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let FactValue::Meeting(m) = first_fact(&card) else { panic!("expected Meeting") };
-    assert_eq!(m.summary,  "Intro call");
+    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nX-KITH-MEETING;LOCATION=Coffee \
+                 Shop:Intro call\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let FactValue::Meeting(m) = first_fact(&card) else {
+      panic!("expected Meeting")
+    };
+    assert_eq!(m.summary, "Intro call");
     assert_eq!(m.location, Some("Coffee Shop".to_string()));
   }
 
   #[test]
   fn x_kith_introduction() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nX-KITH-INTRODUCTION:Met at PyCon\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let FactValue::Introduction(s) = first_fact(&card) else { panic!("expected Introduction") };
+    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nX-KITH-INTRODUCTION:Met at \
+                 PyCon\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let FactValue::Introduction(s) = first_fact(&card) else {
+      panic!("expected Introduction")
+    };
     assert_eq!(s, "Met at PyCon");
   }
 
-  // ── Folded lines ─────────────────────────────────────────────────────────────
+  // ── Folded lines
+  // ─────────────────────────────────────────────────────────────
 
   #[test]
   fn folded_lines_unfolded_correctly() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Alice\r\n  Smith\r\nEND:VCARD\r\n";
-    let card  = parse_one(input, "test").unwrap();
-    let FactValue::Name(n) = first_fact(&card) else { panic!() };
+    let input =
+      "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Alice\r\n  Smith\r\nEND:VCARD\r\n";
+    let card = parse_one(input, "test").unwrap();
+    let FactValue::Name(n) = first_fact(&card) else {
+      panic!()
+    };
     assert_eq!(n.full, "Alice Smith");
   }
 
-  // ── RecordingContext ─────────────────────────────────────────────────────────
+  // ── RecordingContext
+  // ─────────────────────────────────────────────────────────
 
   #[test]
   fn recording_context_set_correctly() {
-    let uid   = "uid-abc-123";
+    let uid = "uid-abc-123";
     let input = format!(
       "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{uid}\r\nFN:Alice\r\nEND:VCARD\r\n"
     );
     let card = parse_one(&input, "MyImport").unwrap();
     assert_eq!(card.uid, Some(uid.to_string()));
     for f in &card.facts {
-      let RecordingContext::Imported { source_name, original_uid } = &f.recording_context else {
+      let RecordingContext::Imported {
+        source_name,
+        original_uid,
+      } = &f.recording_context
+      else {
         panic!("expected Imported context");
       };
-      assert_eq!(source_name,  "MyImport");
+      assert_eq!(source_name, "MyImport");
       assert_eq!(original_uid, &Some(uid.to_string()));
     }
   }
 
-  // ── parse_many ───────────────────────────────────────────────────────────────
+  // ── parse_many
+  // ───────────────────────────────────────────────────────────────
 
   #[test]
   fn parse_many_two_cards() {
@@ -922,8 +1169,14 @@ mod tests {
     assert_eq!(results.len(), 2);
     assert!(results[0].is_ok());
     assert!(results[1].is_ok());
-    let FactValue::Name(n0) = &results[0].as_ref().unwrap().facts[0].value else { panic!() };
-    let FactValue::Name(n1) = &results[1].as_ref().unwrap().facts[0].value else { panic!() };
+    let FactValue::Name(n0) = &results[0].as_ref().unwrap().facts[0].value
+    else {
+      panic!()
+    };
+    let FactValue::Name(n1) = &results[1].as_ref().unwrap().facts[0].value
+    else {
+      panic!()
+    };
     assert_eq!(n0.full, "Alice");
     assert_eq!(n1.full, "Bob");
   }

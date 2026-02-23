@@ -1,13 +1,14 @@
 //! HTTP Basic-auth extractor and standalone verifier.
 
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
-use axum::extract::FromRequestParts;
-use axum::http::{HeaderMap, request::Parts};
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD as B64;
+use axum::{
+  extract::FromRequestParts,
+  http::{HeaderMap, request::Parts},
+};
+use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+use kith_core::store::ContactStore;
 
 use crate::{AppState, error::Error};
-use kith_core::store::ContactStore;
 
 /// Credentials accepted as valid for this server instance.
 #[derive(Clone)]
@@ -17,11 +18,15 @@ pub struct AuthConfig {
   pub password_hash: String,
 }
 
-/// Zero-size marker: present in the handler means the request was authenticated.
+/// Zero-size marker: present in the handler means the request was
+/// authenticated.
 pub struct Authenticated;
 
 /// Verify credentials directly from headers — used by manual dispatch handlers.
-pub fn verify_auth(headers: &HeaderMap, config: &AuthConfig) -> Result<(), Error> {
+pub fn verify_auth(
+  headers: &HeaderMap,
+  config: &AuthConfig,
+) -> Result<(), Error> {
   let header_val = headers
     .get(axum::http::header::AUTHORIZATION)
     .and_then(|v| v.to_str().ok())
@@ -32,9 +37,10 @@ pub fn verify_auth(headers: &HeaderMap, config: &AuthConfig) -> Result<(), Error
     .ok_or(Error::Unauthorized)?;
 
   let decoded = B64.decode(encoded).map_err(|_| Error::Unauthorized)?;
-  let creds   = std::str::from_utf8(&decoded).map_err(|_| Error::Unauthorized)?;
+  let creds = std::str::from_utf8(&decoded).map_err(|_| Error::Unauthorized)?;
 
-  let (username, password) = creds.split_once(':').ok_or(Error::Unauthorized)?;
+  let (username, password) =
+    creds.split_once(':').ok_or(Error::Unauthorized)?;
 
   if username != config.username {
     return Err(Error::Unauthorized);
@@ -68,11 +74,12 @@ where
 
 #[cfg(test)]
 mod tests {
-  use super::*;
-  use std::sync::Arc;
+  use std::{path::PathBuf, sync::Arc};
+
   use axum::http::{Request, header};
+
+  use super::*;
   use crate::{AppState, ServerConfig};
-  use std::path::PathBuf;
 
   // A minimal no-op store for testing auth only.
   #[derive(Clone)]
@@ -80,16 +87,85 @@ mod tests {
 
   impl kith_core::store::ContactStore for NoopStore {
     type Error = std::convert::Infallible;
-    async fn add_subject(&self, _: kith_core::subject::SubjectKind) -> Result<kith_core::subject::Subject, Self::Error> { unimplemented!() }
-    async fn add_subject_with_id(&self, _: uuid::Uuid, _: kith_core::subject::SubjectKind) -> Result<kith_core::subject::Subject, Self::Error> { unimplemented!() }
-    async fn get_subject(&self, _: uuid::Uuid) -> Result<Option<kith_core::subject::Subject>, Self::Error> { unimplemented!() }
-    async fn list_subjects(&self, _: Option<kith_core::subject::SubjectKind>) -> Result<Vec<kith_core::subject::Subject>, Self::Error> { unimplemented!() }
-    async fn record_fact(&self, _: kith_core::fact::NewFact) -> Result<kith_core::fact::Fact, Self::Error> { unimplemented!() }
-    async fn supersede(&self, _: uuid::Uuid, _: kith_core::fact::NewFact) -> Result<(kith_core::lifecycle::Supersession, kith_core::fact::Fact), Self::Error> { unimplemented!() }
-    async fn retract(&self, _: uuid::Uuid, _: Option<String>) -> Result<kith_core::lifecycle::Retraction, Self::Error> { unimplemented!() }
-    async fn get_facts(&self, _: uuid::Uuid, _: Option<chrono::DateTime<chrono::Utc>>, _: bool) -> Result<Vec<kith_core::lifecycle::ResolvedFact>, Self::Error> { unimplemented!() }
-    async fn materialize(&self, _: uuid::Uuid, _: Option<chrono::DateTime<chrono::Utc>>) -> Result<Option<kith_core::lifecycle::ContactView>, Self::Error> { unimplemented!() }
-    async fn search(&self, _: &kith_core::store::FactQuery) -> Result<Vec<kith_core::subject::Subject>, Self::Error> { unimplemented!() }
+
+    async fn add_subject(
+      &self,
+      _: kith_core::subject::SubjectKind,
+    ) -> Result<kith_core::subject::Subject, Self::Error> {
+      unimplemented!()
+    }
+
+    async fn add_subject_with_id(
+      &self,
+      _: uuid::Uuid,
+      _: kith_core::subject::SubjectKind,
+    ) -> Result<kith_core::subject::Subject, Self::Error> {
+      unimplemented!()
+    }
+
+    async fn get_subject(
+      &self,
+      _: uuid::Uuid,
+    ) -> Result<Option<kith_core::subject::Subject>, Self::Error> {
+      unimplemented!()
+    }
+
+    async fn list_subjects(
+      &self,
+      _: Option<kith_core::subject::SubjectKind>,
+    ) -> Result<Vec<kith_core::subject::Subject>, Self::Error> {
+      unimplemented!()
+    }
+
+    async fn record_fact(
+      &self,
+      _: kith_core::fact::NewFact,
+    ) -> Result<kith_core::fact::Fact, Self::Error> {
+      unimplemented!()
+    }
+
+    async fn supersede(
+      &self,
+      _: uuid::Uuid,
+      _: kith_core::fact::NewFact,
+    ) -> Result<
+      (kith_core::lifecycle::Supersession, kith_core::fact::Fact),
+      Self::Error,
+    > {
+      unimplemented!()
+    }
+
+    async fn retract(
+      &self,
+      _: uuid::Uuid,
+      _: Option<String>,
+    ) -> Result<kith_core::lifecycle::Retraction, Self::Error> {
+      unimplemented!()
+    }
+
+    async fn get_facts(
+      &self,
+      _: uuid::Uuid,
+      _: Option<chrono::DateTime<chrono::Utc>>,
+      _: bool,
+    ) -> Result<Vec<kith_core::lifecycle::ResolvedFact>, Self::Error> {
+      unimplemented!()
+    }
+
+    async fn materialize(
+      &self,
+      _: uuid::Uuid,
+      _: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<Option<kith_core::lifecycle::ContactView>, Self::Error> {
+      unimplemented!()
+    }
+
+    async fn search(
+      &self,
+      _: &kith_core::store::FactQuery,
+    ) -> Result<Vec<kith_core::subject::Subject>, Self::Error> {
+      unimplemented!()
+    }
   }
 
   fn make_state(password: &str) -> AppState<NoopStore> {
@@ -112,14 +188,17 @@ mod tests {
         auth_username:      "user".to_string(),
         auth_password_hash: hash.clone(),
       }),
-      auth: Arc::new(AuthConfig {
+      auth:   Arc::new(AuthConfig {
         username:      "user".to_string(),
         password_hash: hash,
       }),
     }
   }
 
-  async fn extract(req: Request<axum::body::Body>, state: &AppState<NoopStore>) -> Result<Authenticated, Error> {
+  async fn extract(
+    req: Request<axum::body::Body>,
+    state: &AppState<NoopStore>,
+  ) -> Result<Authenticated, Error> {
     let (mut parts, _) = req.into_parts();
     Authenticated::from_request_parts(&mut parts, state).await
   }
@@ -134,7 +213,8 @@ mod tests {
     let state = make_state("secret");
     let req = Request::builder()
       .header(header::AUTHORIZATION, basic("user", "secret"))
-      .body(axum::body::Body::empty()).unwrap();
+      .body(axum::body::Body::empty())
+      .unwrap();
     assert!(extract(req, &state).await.is_ok());
   }
 
@@ -143,15 +223,22 @@ mod tests {
     let state = make_state("secret");
     let req = Request::builder()
       .header(header::AUTHORIZATION, basic("user", "wrong"))
-      .body(axum::body::Body::empty()).unwrap();
-    assert!(matches!(extract(req, &state).await, Err(Error::Unauthorized)));
+      .body(axum::body::Body::empty())
+      .unwrap();
+    assert!(matches!(
+      extract(req, &state).await,
+      Err(Error::Unauthorized)
+    ));
   }
 
   #[tokio::test]
   async fn missing_header() {
     let state = make_state("secret");
     let req = Request::builder().body(axum::body::Body::empty()).unwrap();
-    assert!(matches!(extract(req, &state).await, Err(Error::Unauthorized)));
+    assert!(matches!(
+      extract(req, &state).await,
+      Err(Error::Unauthorized)
+    ));
   }
 
   #[tokio::test]
@@ -159,7 +246,11 @@ mod tests {
     let state = make_state("secret");
     let req = Request::builder()
       .header(header::AUTHORIZATION, "Basic !!!not-base64!!!")
-      .body(axum::body::Body::empty()).unwrap();
-    assert!(matches!(extract(req, &state).await, Err(Error::Unauthorized)));
+      .body(axum::body::Body::empty())
+      .unwrap();
+    assert!(matches!(
+      extract(req, &state).await,
+      Err(Error::Unauthorized)
+    ));
   }
 }

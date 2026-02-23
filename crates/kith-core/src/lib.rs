@@ -3,7 +3,6 @@
 //! This crate is deliberately free of HTTP and database dependencies.
 //! All other crates depend on it; it depends on nothing proprietary.
 
-
 pub mod error;
 pub mod fact;
 pub mod lifecycle;

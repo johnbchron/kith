@@ -37,33 +37,37 @@ pub fn compute_etag_from_pairs(pairs: &mut [(Uuid, DateTime<Utc>)]) -> String {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
   use chrono::{TimeZone, Utc};
   use kith_core::{
-    fact::{Confidence, FactValue, NameValue, RecordingContext, Fact},
+    fact::{Confidence, Fact, FactValue, NameValue, RecordingContext},
     lifecycle::{ContactView, FactStatus, ResolvedFact},
     subject::{Subject, SubjectKind},
   };
+
+  use super::*;
 
   fn make_fact(id: Uuid, ts_secs: i64) -> ResolvedFact {
     let subject_id = Uuid::nil();
     let ts = Utc.timestamp_opt(ts_secs, 0).unwrap();
     ResolvedFact {
-      fact: Fact {
-        fact_id:           id,
+      fact:   Fact {
+        fact_id: id,
         subject_id,
-        value:             FactValue::Name(NameValue {
-          given: Some("Test".into()), family: None,
-          additional: None, prefix: None, suffix: None,
-          full: "Test".into(),
+        value: FactValue::Name(NameValue {
+          given:      Some("Test".into()),
+          family:     None,
+          additional: None,
+          prefix:     None,
+          suffix:     None,
+          full:       "Test".into(),
         }),
-        recorded_at:       ts,
-        effective_at:      None,
-        effective_until:   None,
-        source:            None,
-        confidence:        Confidence::Certain,
+        recorded_at: ts,
+        effective_at: None,
+        effective_until: None,
+        source: None,
+        confidence: Confidence::Certain,
         recording_context: RecordingContext::Manual,
-        tags:              vec![],
+        tags: vec![],
       },
       status: FactStatus::Active,
     }
@@ -72,7 +76,11 @@ mod tests {
   fn make_view(facts: Vec<ResolvedFact>) -> ContactView {
     let ts = Utc.timestamp_opt(0, 0).unwrap();
     ContactView {
-      subject:      Subject { subject_id: Uuid::nil(), created_at: ts, kind: SubjectKind::Person },
+      subject:      Subject {
+        subject_id: Uuid::nil(),
+        created_at: ts,
+        kind:       SubjectKind::Person,
+      },
       as_of:        ts,
       active_facts: facts,
     }

@@ -8,10 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{
-  fact::Fact,
-  subject::Subject,
-};
+use crate::{fact::Fact, subject::Subject};
 
 // ─── Lifecycle event records ─────────────────────────────────────────────────
 

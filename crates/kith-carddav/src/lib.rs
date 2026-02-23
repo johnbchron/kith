@@ -10,10 +10,9 @@ pub mod etag;
 pub mod handlers;
 pub mod xml;
 
-pub use error::Error;
-
 use std::{path::PathBuf, sync::Arc};
 
+use auth::{AuthConfig, verify_auth};
 use axum::{
   Router,
   body::Body,
@@ -23,13 +22,13 @@ use axum::{
   routing::any,
 };
 use bytes::Bytes;
+pub use error::Error;
+use handlers::{delete, get, options, propfind, put};
 use kith_core::store::ContactStore;
 use serde::Deserialize;
 
-use auth::{AuthConfig, verify_auth};
-use handlers::{delete, get, options, propfind, put};
-
-// ─── Configuration ────────────────────────────────────────────────────────────
+// ─── Configuration
+// ────────────────────────────────────────────────────────────
 
 /// Runtime server configuration, deserialised from `config.toml`.
 #[derive(Deserialize, Clone)]
@@ -43,7 +42,8 @@ pub struct ServerConfig {
   pub auth_password_hash: String,
 }
 
-// ─── Application state ────────────────────────────────────────────────────────
+// ─── Application state
+// ────────────────────────────────────────────────────────
 
 /// Shared state threaded through all axum handlers.
 #[derive(Clone)]
@@ -53,7 +53,8 @@ pub struct AppState<S: ContactStore> {
   pub auth:   Arc<AuthConfig>,
 }
 
-// ─── Router ───────────────────────────────────────────────────────────────────
+// ─── Router
+// ───────────────────────────────────────────────────────────────────
 
 /// Build an axum [`Router`] for the CardDAV server.
 pub fn router<S>(state: AppState<S>) -> Router
@@ -62,11 +63,14 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   Router::new()
-    .route("/dav/",                               any(dav_root_handler::<S>))
-    .route("/dav/addressbooks/",                  any(dav_home_handler::<S>))
-    .route("/dav/addressbooks/{ab}/",             any(dav_collection_handler::<S>))
-    .route("/dav/addressbooks/{ab}/{uid_vcf}",    any(dav_resource_handler::<S>))
-    .route("/dav/{*path}",                        any(dav_wildcard_handler::<S>))
+    .route("/dav/", any(dav_root_handler::<S>))
+    .route("/dav/addressbooks/", any(dav_home_handler::<S>))
+    .route("/dav/addressbooks/{ab}/", any(dav_collection_handler::<S>))
+    .route(
+      "/dav/addressbooks/{ab}/{uid_vcf}",
+      any(dav_resource_handler::<S>),
+    )
+    .route("/dav/{*path}", any(dav_wildcard_handler::<S>))
     .with_state(state)
 }
 
@@ -76,8 +80,8 @@ where
 /// OPTIONS skips auth.
 fn check_auth<S>(
   method: &Method,
-  req:    &Request<Body>,
-  state:  &AppState<S>,
+  req: &Request<Body>,
+  state: &AppState<S>,
 ) -> Option<Response>
 where
   S: ContactStore + Clone + Send + Sync + 'static,
@@ -86,7 +90,7 @@ where
     return None;
   }
   match verify_auth(req.headers(), &state.auth) {
-    Ok(_)  => None,
+    Ok(_) => None,
     Err(e) => Some(e.into_response()),
   }
 }
@@ -95,8 +99,7 @@ async fn collect_body(req: Request<Body>) -> Result<Bytes, Response> {
   axum::body::to_bytes(req.into_body(), 8 * 1024 * 1024)
     .await
     .map_err(|_| {
-      (StatusCode::PAYLOAD_TOO_LARGE, "request body too large")
-        .into_response()
+      (StatusCode::PAYLOAD_TOO_LARGE, "request body too large").into_response()
     })
 }
 
@@ -123,7 +126,8 @@ fn path_segment_ab(uri: &axum::http::Uri) -> Option<String> {
 }
 
 fn depth_from_req(req: &Request<Body>) -> u8 {
-  req.headers()
+  req
+    .headers()
     .get("depth")
     .and_then(|v| v.to_str().ok())
     .and_then(|s| s.parse().ok())
@@ -141,12 +145,19 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   let method = req.method().clone();
-  if let Some(r) = check_auth(&method, &req, &state) { return r; }
+  if let Some(r) = check_auth(&method, &req, &state) {
+    return r;
+  }
   match method.as_str() {
-    "OPTIONS"  => options::handler(),
+    "OPTIONS" => options::handler(),
     "PROPFIND" => {
-      let body = match collect_body(req).await { Ok(b) => b, Err(e) => return e };
-      propfind::principal(&state, &body).await.into_response_or_err()
+      let body = match collect_body(req).await {
+        Ok(b) => b,
+        Err(e) => return e,
+      };
+      propfind::principal(&state, &body)
+        .await
+        .into_response_or_err()
     }
     _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
   }
@@ -161,12 +172,19 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   let method = req.method().clone();
-  if let Some(r) = check_auth(&method, &req, &state) { return r; }
+  if let Some(r) = check_auth(&method, &req, &state) {
+    return r;
+  }
   match method.as_str() {
-    "OPTIONS"  => options::handler(),
+    "OPTIONS" => options::handler(),
     "PROPFIND" => {
-      let body = match collect_body(req).await { Ok(b) => b, Err(e) => return e };
-      propfind::home_set(&state, &body).await.into_response_or_err()
+      let body = match collect_body(req).await {
+        Ok(b) => b,
+        Err(e) => return e,
+      };
+      propfind::home_set(&state, &body)
+        .await
+        .into_response_or_err()
     }
     _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
   }
@@ -181,17 +199,26 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   let method = req.method().clone();
-  if let Some(r) = check_auth(&method, &req, &state) { return r; }
+  if let Some(r) = check_auth(&method, &req, &state) {
+    return r;
+  }
   let depth = depth_from_req(&req);
-  let ab    = match path_segment_ab(req.uri()) {
+  let ab = match path_segment_ab(req.uri()) {
     Some(ab) => ab,
-    None     => return (StatusCode::BAD_REQUEST, "cannot parse path").into_response(),
+    None => {
+      return (StatusCode::BAD_REQUEST, "cannot parse path").into_response();
+    }
   };
   match method.as_str() {
-    "OPTIONS"  => options::handler(),
+    "OPTIONS" => options::handler(),
     "PROPFIND" => {
-      let body = match collect_body(req).await { Ok(b) => b, Err(e) => return e };
-      propfind::collection(&state, &ab, depth, &body).await.into_response_or_err()
+      let body = match collect_body(req).await {
+        Ok(b) => b,
+        Err(e) => return e,
+      };
+      propfind::collection(&state, &ab, depth, &body)
+        .await
+        .into_response_or_err()
     }
     _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
   }
@@ -206,29 +233,52 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   let method = req.method().clone();
-  if let Some(r) = check_auth(&method, &req, &state) { return r; }
+  if let Some(r) = check_auth(&method, &req, &state) {
+    return r;
+  }
   let (ab, uid_vcf) = match path_segments_2(req.uri()) {
     Some(p) => p,
-    None    => return (StatusCode::BAD_REQUEST, "cannot parse path").into_response(),
+    None => {
+      return (StatusCode::BAD_REQUEST, "cannot parse path").into_response();
+    }
   };
   let headers = req.headers().clone();
   match method.as_str() {
-    "OPTIONS"  => options::handler(),
+    "OPTIONS" => options::handler(),
     "PROPFIND" => {
-      let body = match collect_body(req).await { Ok(b) => b, Err(e) => return e };
-      propfind::resource(&state, &ab, &uid_vcf, &body).await.into_response_or_err()
-    }
-    "GET"  => get::handler(&state, &method, &uid_vcf).await.into_response_or_err(),
-    "HEAD" => get::handler(&state, &method, &uid_vcf).await.into_response_or_err(),
-    "PUT"  => {
-      let body_bytes = match collect_body(req).await { Ok(b) => b, Err(e) => return e };
-      let body_str   = match std::str::from_utf8(&body_bytes) {
-        Ok(s)  => s,
-        Err(_) => return Error::BadRequest("body is not valid UTF-8".to_string()).into_response(),
+      let body = match collect_body(req).await {
+        Ok(b) => b,
+        Err(e) => return e,
       };
-      put::handler(&state, &headers, &uid_vcf, body_str).await.into_response_or_err()
+      propfind::resource(&state, &ab, &uid_vcf, &body)
+        .await
+        .into_response_or_err()
     }
-    "DELETE" => delete::handler(&state, &uid_vcf).await.into_response_or_err(),
+    "GET" => get::handler(&state, &method, &uid_vcf)
+      .await
+      .into_response_or_err(),
+    "HEAD" => get::handler(&state, &method, &uid_vcf)
+      .await
+      .into_response_or_err(),
+    "PUT" => {
+      let body_bytes = match collect_body(req).await {
+        Ok(b) => b,
+        Err(e) => return e,
+      };
+      let body_str = match std::str::from_utf8(&body_bytes) {
+        Ok(s) => s,
+        Err(_) => {
+          return Error::BadRequest("body is not valid UTF-8".to_string())
+            .into_response();
+        }
+      };
+      put::handler(&state, &headers, &uid_vcf, body_str)
+        .await
+        .into_response_or_err()
+    }
+    "DELETE" => delete::handler(&state, &uid_vcf)
+      .await
+      .into_response_or_err(),
     _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
   }
 }
@@ -257,38 +307,39 @@ trait IntoResponseOrErr {
 impl IntoResponseOrErr for Result<Response, Error> {
   fn into_response_or_err(self) -> Response {
     match self {
-      Ok(r)  => r,
+      Ok(r) => r,
       Err(e) => e.into_response(),
     }
   }
 }
 
-// ─── Integration tests ────────────────────────────────────────────────────────
+// ─── Integration tests
+// ────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
-  use super::*;
   use std::sync::Arc;
 
   use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
-  use rand_core::OsRng;
   use axum::http::{Request, StatusCode, header};
-  use base64::Engine as _;
-  use base64::engine::general_purpose::STANDARD as B64;
+  use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
   use kith_store_sqlite::SqliteStore;
+  use rand_core::OsRng;
   use tower::ServiceExt as _;
   use uuid::Uuid;
 
+  use super::*;
+
   async fn make_state(password: &str) -> AppState<SqliteStore> {
     let store = SqliteStore::open_in_memory().await.unwrap();
-    let salt  = SaltString::generate(&mut OsRng);
-    let hash  = Argon2::default()
+    let salt = SaltString::generate(&mut OsRng);
+    let hash = Argon2::default()
       .hash_password(password.as_bytes(), &salt)
       .unwrap()
       .to_string();
 
     AppState {
-      store: Arc::new(store),
+      store:  Arc::new(store),
       config: Arc::new(ServerConfig {
         host:               "127.0.0.1".to_string(),
         port:               5232,
@@ -298,7 +349,7 @@ mod tests {
         auth_username:      "user".to_string(),
         auth_password_hash: hash.clone(),
       }),
-      auth: Arc::new(AuthConfig {
+      auth:   Arc::new(AuthConfig {
         username:      "user".to_string(),
         password_hash: hash,
       }),
@@ -310,11 +361,11 @@ mod tests {
   }
 
   async fn oneshot_raw(
-    state:   AppState<SqliteStore>,
-    method:  &str,
-    uri:     &str,
+    state: AppState<SqliteStore>,
+    method: &str,
+    uri: &str,
     headers: Vec<(header::HeaderName, &str)>,
-    body:    &str,
+    body: &str,
   ) -> axum::response::Response {
     let mut builder = Request::builder().method(method).uri(uri);
     for (k, v) in headers {
@@ -324,25 +375,29 @@ mod tests {
     router(state).oneshot(req).await.unwrap()
   }
 
-  // ── OPTIONS ─────────────────────────────────────────────────────────────────
+  // ── OPTIONS
+  // ─────────────────────────────────────────────────────────────────
 
   #[tokio::test]
   async fn options_returns_204_with_dav_header() {
     let state = make_state("secret").await;
-    let resp  = oneshot_raw(state, "OPTIONS", "/dav/addressbooks/personal/", vec![], "").await;
+    let resp =
+      oneshot_raw(state, "OPTIONS", "/dav/addressbooks/personal/", vec![], "")
+        .await;
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     let dav_val = resp.headers().get("dav").unwrap().to_str().unwrap();
     assert!(dav_val.contains("addressbook"), "DAV header: {dav_val}");
   }
 
-  // ── PROPFIND collection ──────────────────────────────────────────────────────
+  // ── PROPFIND collection
+  // ──────────────────────────────────────────────────────
 
   #[tokio::test]
   async fn propfind_empty_store_returns_207() {
     let state = make_state("secret").await;
-    let auth  = auth_header("user", "secret");
-    let body  = r#"<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:allprop/></D:propfind>"#;
-    let resp  = oneshot_raw(
+    let auth = auth_header("user", "secret");
+    let body = r#"<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:allprop/></D:propfind>"#;
+    let resp = oneshot_raw(
       state,
       "PROPFIND",
       "/dav/addressbooks/personal/",
@@ -351,15 +406,16 @@ mod tests {
         (header::HeaderName::from_static("depth"), "1"),
       ],
       body,
-    ).await;
+    )
+    .await;
     assert_eq!(resp.status().as_u16(), 207);
   }
 
   #[tokio::test]
   async fn propfind_with_one_subject_returns_two_responses() {
     let state = make_state("secret").await;
-    let auth  = auth_header("user", "secret");
-    let uid   = Uuid::new_v4();
+    let auth = auth_header("user", "secret");
+    let uid = Uuid::new_v4();
     let vcard = format!(
       "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{uid}\r\nFN:Alice\r\nEND:VCARD\r\n"
     );
@@ -373,7 +429,8 @@ mod tests {
         (header::CONTENT_TYPE, "text/vcard"),
       ],
       &vcard,
-    ).await;
+    )
+    .await;
 
     let body = r#"<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:allprop/></D:propfind>"#;
     let resp = oneshot_raw(
@@ -385,12 +442,18 @@ mod tests {
         (header::HeaderName::from_static("depth"), "1"),
       ],
       body,
-    ).await;
+    )
+    .await;
     assert_eq!(resp.status().as_u16(), 207);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-    let xml   = std::str::from_utf8(&bytes).unwrap();
-    assert!(xml.contains("personal/"),         "collection href missing: {xml}");
-    assert!(xml.contains(&uid.to_string()),     "resource href missing: {xml}");
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+      .await
+      .unwrap();
+    let xml = std::str::from_utf8(&bytes).unwrap();
+    assert!(xml.contains("personal/"), "collection href missing: {xml}");
+    assert!(
+      xml.contains(&uid.to_string()),
+      "resource href missing: {xml}"
+    );
   }
 
   // ── GET ──────────────────────────────────────────────────────────────────────
@@ -398,27 +461,30 @@ mod tests {
   #[tokio::test]
   async fn get_nonexistent_returns_404() {
     let state = make_state("secret").await;
-    let auth  = auth_header("user", "secret");
-    let uid   = Uuid::new_v4();
-    let resp  = oneshot_raw(
+    let auth = auth_header("user", "secret");
+    let uid = Uuid::new_v4();
+    let resp = oneshot_raw(
       state,
       "GET",
       &format!("/dav/addressbooks/personal/{uid}.vcf"),
       vec![(header::AUTHORIZATION, auth.as_str())],
       "",
-    ).await;
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
   }
 
-  // ── PUT / GET round-trip ─────────────────────────────────────────────────────
+  // ── PUT / GET round-trip
+  // ─────────────────────────────────────────────────────
 
   #[tokio::test]
   async fn put_creates_and_get_returns_vcard() {
     let state = make_state("secret").await;
-    let auth  = auth_header("user", "secret");
-    let uid   = Uuid::new_v4();
+    let auth = auth_header("user", "secret");
+    let uid = Uuid::new_v4();
     let vcard = format!(
-      "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{uid}\r\nFN:Test User\r\nEMAIL:test@example.com\r\nEND:VCARD\r\n"
+      "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{uid}\r\nFN:Test \
+       User\r\nEMAIL:test@example.com\r\nEND:VCARD\r\n"
     );
 
     let put_resp = oneshot_raw(
@@ -430,7 +496,8 @@ mod tests {
         (header::CONTENT_TYPE, "text/vcard"),
       ],
       &vcard,
-    ).await;
+    )
+    .await;
     assert_eq!(put_resp.status(), StatusCode::CREATED);
     assert!(put_resp.headers().contains_key(header::ETAG));
 
@@ -440,22 +507,31 @@ mod tests {
       &format!("/dav/addressbooks/personal/{uid}.vcf"),
       vec![(header::AUTHORIZATION, auth.as_str())],
       "",
-    ).await;
+    )
+    .await;
     assert_eq!(get_resp.status(), StatusCode::OK);
-    let ct = get_resp.headers().get(header::CONTENT_TYPE).unwrap().to_str().unwrap();
+    let ct = get_resp
+      .headers()
+      .get(header::CONTENT_TYPE)
+      .unwrap()
+      .to_str()
+      .unwrap();
     assert!(ct.contains("vcard"), "Content-Type: {ct}");
-    let bytes = axum::body::to_bytes(get_resp.into_body(), usize::MAX).await.unwrap();
-    let body  = std::str::from_utf8(&bytes).unwrap();
+    let bytes = axum::body::to_bytes(get_resp.into_body(), usize::MAX)
+      .await
+      .unwrap();
+    let body = std::str::from_utf8(&bytes).unwrap();
     assert!(body.contains("BEGIN:VCARD"), "body: {body}");
   }
 
-  // ── PUT with If-Match ────────────────────────────────────────────────────────
+  // ── PUT with If-Match
+  // ────────────────────────────────────────────────────────
 
   #[tokio::test]
   async fn put_with_correct_if_match_returns_204() {
     let state = make_state("secret").await;
-    let auth  = auth_header("user", "secret");
-    let uid   = Uuid::new_v4();
+    let auth = auth_header("user", "secret");
+    let uid = Uuid::new_v4();
     let vcard = format!(
       "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{uid}\r\nFN:First\r\nEND:VCARD\r\n"
     );
@@ -466,9 +542,16 @@ mod tests {
       &format!("/dav/addressbooks/personal/{uid}.vcf"),
       vec![(header::AUTHORIZATION, auth.as_str())],
       &vcard,
-    ).await;
+    )
+    .await;
     assert_eq!(resp1.status(), StatusCode::CREATED);
-    let etag = resp1.headers().get(header::ETAG).unwrap().to_str().unwrap().to_string();
+    let etag = resp1
+      .headers()
+      .get(header::ETAG)
+      .unwrap()
+      .to_str()
+      .unwrap()
+      .to_string();
 
     let vcard2 = format!(
       "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{uid}\r\nFN:Updated\r\nEND:VCARD\r\n"
@@ -482,7 +565,8 @@ mod tests {
         (header::IF_MATCH, etag.as_str()),
       ],
       &vcard2,
-    ).await;
+    )
+    .await;
     assert_eq!(resp2.status(), StatusCode::NO_CONTENT);
   }
 
@@ -491,8 +575,8 @@ mod tests {
     // Some clients send If-Match without the surrounding double-quotes.
     // The server should accept both forms.
     let state = make_state("secret").await;
-    let auth  = auth_header("user", "secret");
-    let uid   = Uuid::new_v4();
+    let auth = auth_header("user", "secret");
+    let uid = Uuid::new_v4();
     let vcard = format!(
       "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{uid}\r\nFN:First\r\nEND:VCARD\r\n"
     );
@@ -503,11 +587,18 @@ mod tests {
       &format!("/dav/addressbooks/personal/{uid}.vcf"),
       vec![(header::AUTHORIZATION, auth.as_str())],
       &vcard,
-    ).await;
+    )
+    .await;
     assert_eq!(resp1.status(), StatusCode::CREATED);
     // Strip the surrounding quotes to simulate a bare-ETag client.
-    let etag_quoted = resp1.headers().get(header::ETAG).unwrap().to_str().unwrap().to_string();
-    let etag_bare   = etag_quoted.trim_matches('"').to_string();
+    let etag_quoted = resp1
+      .headers()
+      .get(header::ETAG)
+      .unwrap()
+      .to_str()
+      .unwrap()
+      .to_string();
+    let etag_bare = etag_quoted.trim_matches('"').to_string();
 
     let vcard2 = format!(
       "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{uid}\r\nFN:Updated\r\nEND:VCARD\r\n"
@@ -521,15 +612,16 @@ mod tests {
         (header::IF_MATCH, etag_bare.as_str()),
       ],
       &vcard2,
-    ).await;
+    )
+    .await;
     assert_eq!(resp2.status(), StatusCode::NO_CONTENT);
   }
 
   #[tokio::test]
   async fn put_with_stale_if_match_returns_412() {
     let state = make_state("secret").await;
-    let auth  = auth_header("user", "secret");
-    let uid   = Uuid::new_v4();
+    let auth = auth_header("user", "secret");
+    let uid = Uuid::new_v4();
     let vcard = format!(
       "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{uid}\r\nFN:First\r\nEND:VCARD\r\n"
     );
@@ -540,7 +632,8 @@ mod tests {
       &format!("/dav/addressbooks/personal/{uid}.vcf"),
       vec![(header::AUTHORIZATION, auth.as_str())],
       &vcard,
-    ).await;
+    )
+    .await;
 
     let vcard2 = format!(
       "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{uid}\r\nFN:Updated\r\nEND:VCARD\r\n"
@@ -554,7 +647,8 @@ mod tests {
         (header::IF_MATCH, "\"stale-etag\""),
       ],
       &vcard2,
-    ).await;
+    )
+    .await;
     assert_eq!(resp2.status(), StatusCode::PRECONDITION_FAILED);
   }
 
@@ -563,10 +657,11 @@ mod tests {
   #[tokio::test]
   async fn delete_existing_returns_204_and_get_returns_404() {
     let state = make_state("secret").await;
-    let auth  = auth_header("user", "secret");
-    let uid   = Uuid::new_v4();
+    let auth = auth_header("user", "secret");
+    let uid = Uuid::new_v4();
     let vcard = format!(
-      "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{uid}\r\nFN:To Delete\r\nEND:VCARD\r\n"
+      "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{uid}\r\nFN:To \
+       Delete\r\nEND:VCARD\r\n"
     );
 
     oneshot_raw(
@@ -575,7 +670,8 @@ mod tests {
       &format!("/dav/addressbooks/personal/{uid}.vcf"),
       vec![(header::AUTHORIZATION, auth.as_str())],
       &vcard,
-    ).await;
+    )
+    .await;
 
     let del_resp = oneshot_raw(
       state.clone(),
@@ -583,7 +679,8 @@ mod tests {
       &format!("/dav/addressbooks/personal/{uid}.vcf"),
       vec![(header::AUTHORIZATION, auth.as_str())],
       "",
-    ).await;
+    )
+    .await;
     assert_eq!(del_resp.status(), StatusCode::NO_CONTENT);
 
     let get_resp = oneshot_raw(
@@ -592,22 +689,24 @@ mod tests {
       &format!("/dav/addressbooks/personal/{uid}.vcf"),
       vec![(header::AUTHORIZATION, auth.as_str())],
       "",
-    ).await;
+    )
+    .await;
     assert_eq!(get_resp.status(), StatusCode::NOT_FOUND);
   }
 
   #[tokio::test]
   async fn delete_nonexistent_returns_404() {
     let state = make_state("secret").await;
-    let auth  = auth_header("user", "secret");
-    let uid   = Uuid::new_v4();
-    let resp  = oneshot_raw(
+    let auth = auth_header("user", "secret");
+    let uid = Uuid::new_v4();
+    let resp = oneshot_raw(
       state,
       "DELETE",
       &format!("/dav/addressbooks/personal/{uid}.vcf"),
       vec![(header::AUTHORIZATION, auth.as_str())],
       "",
-    ).await;
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
   }
 
@@ -616,7 +715,7 @@ mod tests {
   #[tokio::test]
   async fn unauthenticated_requests_return_401() {
     let state = make_state("secret").await;
-    let uid   = Uuid::new_v4();
+    let uid = Uuid::new_v4();
 
     let resp = oneshot_raw(
       state.clone(),
@@ -624,7 +723,8 @@ mod tests {
       &format!("/dav/addressbooks/personal/{uid}.vcf"),
       vec![],
       "",
-    ).await;
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     assert!(resp.headers().contains_key(header::WWW_AUTHENTICATE));
   }

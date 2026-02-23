@@ -3,23 +3,23 @@
 use std::path::Path;
 
 use chrono::Utc;
-use rusqlite::OptionalExtension as _;
-use uuid::Uuid;
-
 use kith_core::{
   fact::{Fact, NewFact},
-  lifecycle::{ContactView, Retraction, ResolvedFact, Supersession},
+  lifecycle::{ContactView, ResolvedFact, Retraction, Supersession},
   store::{ContactStore, FactQuery},
   subject::{Subject, SubjectKind},
 };
+use rusqlite::OptionalExtension as _;
+use uuid::Uuid;
 
 use crate::{
+  Error, Result,
   encode::{
-    encode_confidence, encode_dt, encode_effective_date, encode_recording_context,
-    encode_subject_kind, encode_tags, encode_uuid, RawResolvedFact, RawSubject,
+    RawResolvedFact, RawSubject, encode_confidence, encode_dt,
+    encode_effective_date, encode_recording_context, encode_subject_kind,
+    encode_tags, encode_uuid,
   },
   schema::SCHEMA,
-  Error, Result,
 };
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -69,41 +69,42 @@ impl SqliteStore {
   ) -> Result<(bool, Option<Uuid>, Option<Uuid>)> {
     let id_str = encode_uuid(fact_id);
 
-    let (exists, sup_str, ret_str): (bool, Option<String>, Option<String>) = self
-      .conn
-      .call(move |conn| {
-        let exists: bool = conn
-          .query_row(
-            "SELECT 1 FROM facts WHERE fact_id = ?1",
-            rusqlite::params![id_str],
-            |_| Ok(true),
-          )
-          .optional()?
-          .unwrap_or(false);
+    let (exists, sup_str, ret_str): (bool, Option<String>, Option<String>) =
+      self
+        .conn
+        .call(move |conn| {
+          let exists: bool = conn
+            .query_row(
+              "SELECT 1 FROM facts WHERE fact_id = ?1",
+              rusqlite::params![id_str],
+              |_| Ok(true),
+            )
+            .optional()?
+            .unwrap_or(false);
 
-        if !exists {
-          return Ok((false, None, None));
-        }
+          if !exists {
+            return Ok((false, None, None));
+          }
 
-        let sup: Option<String> = conn
-          .query_row(
-            "SELECT new_fact_id FROM supersessions WHERE old_fact_id = ?1",
-            rusqlite::params![id_str],
-            |r| r.get(0),
-          )
-          .optional()?;
+          let sup: Option<String> = conn
+            .query_row(
+              "SELECT new_fact_id FROM supersessions WHERE old_fact_id = ?1",
+              rusqlite::params![id_str],
+              |r| r.get(0),
+            )
+            .optional()?;
 
-        let ret: Option<String> = conn
-          .query_row(
-            "SELECT retraction_id FROM retractions WHERE fact_id = ?1",
-            rusqlite::params![id_str],
-            |r| r.get(0),
-          )
-          .optional()?;
+          let ret: Option<String> = conn
+            .query_row(
+              "SELECT retraction_id FROM retractions WHERE fact_id = ?1",
+              rusqlite::params![id_str],
+              |r| r.get(0),
+            )
+            .optional()?;
 
-        Ok((true, sup, ret))
-      })
-      .await?;
+          Ok((true, sup, ret))
+        })
+        .await?;
 
     let superseded_by = sup_str
       .map(|s| Uuid::parse_str(&s))
@@ -120,12 +121,12 @@ impl SqliteStore {
 
   /// Insert a fully-built [`Fact`] into the `facts` table.
   async fn insert_fact(&self, fact: &Fact) -> Result<()> {
-    let fact_id_str         = encode_uuid(fact.fact_id);
-    let subject_id_str      = encode_uuid(fact.subject_id);
-    let fact_type           = fact.value.discriminant().to_owned();
-    let value_json_str      = fact.value.to_json()?.to_string();
-    let recorded_at_str     = encode_dt(fact.recorded_at);
-    let effective_at_str    = fact
+    let fact_id_str = encode_uuid(fact.fact_id);
+    let subject_id_str = encode_uuid(fact.subject_id);
+    let fact_type = fact.value.discriminant().to_owned();
+    let value_json_str = fact.value.to_json()?.to_string();
+    let recorded_at_str = encode_dt(fact.recorded_at);
+    let effective_at_str = fact
       .effective_at
       .as_ref()
       .map(encode_effective_date)
@@ -135,10 +136,10 @@ impl SqliteStore {
       .as_ref()
       .map(encode_effective_date)
       .transpose()?;
-    let confidence_str      = encode_confidence(fact.confidence).to_owned();
-    let recording_ctx_str   = encode_recording_context(&fact.recording_context)?;
-    let tags_str            = encode_tags(&fact.tags)?;
-    let source              = fact.source.clone();
+    let confidence_str = encode_confidence(fact.confidence).to_owned();
+    let recording_ctx_str = encode_recording_context(&fact.recording_context)?;
+    let tags_str = encode_tags(&fact.tags)?;
+    let source = fact.source.clone();
 
     self
       .conn
@@ -181,22 +182,27 @@ impl ContactStore for SqliteStore {
     self.add_subject_with_id(Uuid::new_v4(), kind).await
   }
 
-  async fn add_subject_with_id(&self, id: Uuid, kind: SubjectKind) -> Result<Subject> {
+  async fn add_subject_with_id(
+    &self,
+    id: Uuid,
+    kind: SubjectKind,
+  ) -> Result<Subject> {
     let subject = Subject {
       subject_id: id,
       created_at: Utc::now(),
       kind,
     };
 
-    let id_str   = encode_uuid(subject.subject_id);
-    let at_str   = encode_dt(subject.created_at);
+    let id_str = encode_uuid(subject.subject_id);
+    let at_str = encode_dt(subject.created_at);
     let kind_str = encode_subject_kind(kind).to_owned();
 
     self
       .conn
       .call(move |conn| {
         conn.execute(
-          "INSERT INTO subjects (subject_id, created_at, kind) VALUES (?1, ?2, ?3)",
+          "INSERT INTO subjects (subject_id, created_at, kind) VALUES (?1, \
+           ?2, ?3)",
           rusqlite::params![id_str, at_str, kind_str],
         )?;
         Ok(())
@@ -212,34 +218,41 @@ impl ContactStore for SqliteStore {
     let raw: Option<RawSubject> = self
       .conn
       .call(move |conn| {
-        Ok(conn
-          .query_row(
-            "SELECT subject_id, created_at, kind FROM subjects WHERE subject_id = ?1",
-            rusqlite::params![id_str],
-            |row| {
-              Ok(RawSubject {
-                subject_id: row.get(0)?,
-                created_at: row.get(1)?,
-                kind:       row.get(2)?,
-              })
-            },
-          )
-          .optional()?)
+        Ok(
+          conn
+            .query_row(
+              "SELECT subject_id, created_at, kind FROM subjects WHERE \
+               subject_id = ?1",
+              rusqlite::params![id_str],
+              |row| {
+                Ok(RawSubject {
+                  subject_id: row.get(0)?,
+                  created_at: row.get(1)?,
+                  kind:       row.get(2)?,
+                })
+              },
+            )
+            .optional()?,
+        )
       })
       .await?;
 
     raw.map(RawSubject::into_subject).transpose()
   }
 
-  async fn list_subjects(&self, kind: Option<SubjectKind>) -> Result<Vec<Subject>> {
+  async fn list_subjects(
+    &self,
+    kind: Option<SubjectKind>,
+  ) -> Result<Vec<Subject>> {
     let kind_str = kind.map(encode_subject_kind).map(str::to_owned);
 
     let raws: Vec<RawSubject> = self
       .conn
       .call(move |conn| {
         let rows = if let Some(k) = kind_str {
-          let mut stmt = conn
-            .prepare("SELECT subject_id, created_at, kind FROM subjects WHERE kind = ?1")?;
+          let mut stmt = conn.prepare(
+            "SELECT subject_id, created_at, kind FROM subjects WHERE kind = ?1",
+          )?;
           stmt
             .query_map(rusqlite::params![k], |row| {
               Ok(RawSubject {
@@ -293,7 +306,7 @@ impl ContactStore for SqliteStore {
 
   async fn supersede(
     &self,
-    old_id:      Uuid,
+    old_id: Uuid,
     replacement: NewFact,
   ) -> Result<(Supersession, Fact)> {
     let (exists, superseded_by, retracted_id) =
@@ -325,13 +338,14 @@ impl ContactStore for SqliteStore {
     let sup_id_str = encode_uuid(supersession.supersession_id);
     let old_id_str = encode_uuid(old_id);
     let new_id_str = encode_uuid(new_fact.fact_id);
-    let at_str     = encode_dt(supersession.recorded_at);
+    let at_str = encode_dt(supersession.recorded_at);
 
     self
       .conn
       .call(move |conn| {
         conn.execute(
-          "INSERT INTO supersessions (supersession_id, old_fact_id, new_fact_id, recorded_at)
+          "INSERT INTO supersessions (supersession_id, old_fact_id, \
+           new_fact_id, recorded_at)
            VALUES (?1, ?2, ?3, ?4)",
           rusqlite::params![sup_id_str, old_id_str, new_id_str, at_str],
         )?;
@@ -342,7 +356,11 @@ impl ContactStore for SqliteStore {
     Ok((supersession, new_fact))
   }
 
-  async fn retract(&self, fact_id: Uuid, reason: Option<String>) -> Result<Retraction> {
+  async fn retract(
+    &self,
+    fact_id: Uuid,
+    reason: Option<String>,
+  ) -> Result<Retraction> {
     let (exists, superseded_by, retracted_id) =
       self.fact_lifecycle_check(fact_id).await?;
 
@@ -359,19 +377,20 @@ impl ContactStore for SqliteStore {
     let retraction = Retraction {
       retraction_id: Uuid::new_v4(),
       fact_id,
-      reason:        reason.clone(),
-      recorded_at:   Utc::now(),
+      reason: reason.clone(),
+      recorded_at: Utc::now(),
     };
 
-    let ret_id_str  = encode_uuid(retraction.retraction_id);
+    let ret_id_str = encode_uuid(retraction.retraction_id);
     let fact_id_str = encode_uuid(fact_id);
-    let at_str      = encode_dt(retraction.recorded_at);
+    let at_str = encode_dt(retraction.recorded_at);
 
     self
       .conn
       .call(move |conn| {
         conn.execute(
-          "INSERT INTO retractions (retraction_id, fact_id, reason, recorded_at)
+          "INSERT INTO retractions (retraction_id, fact_id, reason, \
+           recorded_at)
            VALUES (?1, ?2, ?3, ?4)",
           rusqlite::params![ret_id_str, fact_id_str, reason, at_str],
         )?;
@@ -386,12 +405,12 @@ impl ContactStore for SqliteStore {
 
   async fn get_facts(
     &self,
-    subject_id:       Uuid,
-    as_of:            Option<chrono::DateTime<Utc>>,
+    subject_id: Uuid,
+    as_of: Option<chrono::DateTime<Utc>>,
     include_inactive: bool,
   ) -> Result<Vec<ResolvedFact>> {
     let subject_id_str = encode_uuid(subject_id);
-    let as_of_str      = encode_dt(as_of.unwrap_or_else(Utc::now));
+    let as_of_str = encode_dt(as_of.unwrap_or_else(Utc::now));
 
     let raws: Vec<RawResolvedFact> = self
       .conn
@@ -453,25 +472,31 @@ impl ContactStore for SqliteStore {
   async fn materialize(
     &self,
     subject_id: Uuid,
-    as_of:      Option<chrono::DateTime<Utc>>,
+    as_of: Option<chrono::DateTime<Utc>>,
   ) -> Result<Option<ContactView>> {
     let subject = match self.get_subject(subject_id).await? {
       Some(s) => s,
-      None    => return Ok(None),
+      None => return Ok(None),
     };
 
     let as_of_resolved = as_of.unwrap_or_else(Utc::now);
-    let active_facts   = self.get_facts(subject_id, Some(as_of_resolved), false).await?;
+    let active_facts = self
+      .get_facts(subject_id, Some(as_of_resolved), false)
+      .await?;
 
-    Ok(Some(ContactView { subject, as_of: as_of_resolved, active_facts }))
+    Ok(Some(ContactView {
+      subject,
+      as_of: as_of_resolved,
+      active_facts,
+    }))
   }
 
   async fn search(&self, query: &FactQuery) -> Result<Vec<Subject>> {
     // Phase 1: SQL LIKE over value_json + optional subject-kind filter.
     let text_pattern = query.text.as_deref().map(|t| format!("%{t}%"));
-    let kind_str     = query.kind.map(encode_subject_kind).map(str::to_owned);
-    let limit_val    = query.limit.unwrap_or(100) as i64;
-    let offset_val   = query.offset.unwrap_or(0) as i64;
+    let kind_str = query.kind.map(encode_subject_kind).map(str::to_owned);
+    let limit_val = query.limit.unwrap_or(100) as i64;
+    let offset_val = query.offset.unwrap_or(0) as i64;
 
     let raws: Vec<RawSubject> = self
       .conn

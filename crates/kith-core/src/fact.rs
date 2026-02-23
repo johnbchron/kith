@@ -29,7 +29,9 @@ pub enum EffectiveDate {
 // ─── Provenance ──────────────────────────────────────────────────────────────
 
 /// How certain the author is about this fact.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+  Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Confidence {
   #[default]
@@ -263,25 +265,25 @@ impl FactValue {
   /// Must match the `rename_all = "snake_case"` serde tags above.
   pub fn discriminant(&self) -> &'static str {
     match self {
-      Self::Name(_)            => "name",
-      Self::Alias(_)           => "alias",
-      Self::Photo(_)           => "photo",
-      Self::Birthday(_)        => "birthday",
-      Self::Anniversary(_)     => "anniversary",
-      Self::Gender(_)          => "gender",
-      Self::Email(_)           => "email",
-      Self::Phone(_)           => "phone",
-      Self::Address(_)         => "address",
-      Self::Url(_)             => "url",
-      Self::Im(_)              => "im",
-      Self::Social(_)          => "social",
-      Self::Relationship(_)    => "relationship",
-      Self::OrgMembership(_)   => "org_membership",
+      Self::Name(_) => "name",
+      Self::Alias(_) => "alias",
+      Self::Photo(_) => "photo",
+      Self::Birthday(_) => "birthday",
+      Self::Anniversary(_) => "anniversary",
+      Self::Gender(_) => "gender",
+      Self::Email(_) => "email",
+      Self::Phone(_) => "phone",
+      Self::Address(_) => "address",
+      Self::Url(_) => "url",
+      Self::Im(_) => "im",
+      Self::Social(_) => "social",
+      Self::Relationship(_) => "relationship",
+      Self::OrgMembership(_) => "org_membership",
       Self::GroupMembership(_) => "group_membership",
-      Self::Note(_)            => "note",
-      Self::Meeting(_)         => "meeting",
-      Self::Introduction(_)    => "introduction",
-      Self::Custom { .. }      => "custom",
+      Self::Note(_) => "note",
+      Self::Meeting(_) => "meeting",
+      Self::Introduction(_) => "introduction",
+      Self::Custom { .. } => "custom",
     }
   }
 
@@ -296,7 +298,10 @@ impl FactValue {
 
   /// Deserialise from the discriminant string and JSON payload stored in the
   /// database.
-  pub fn from_parts(discriminant: &str, data: serde_json::Value) -> Result<Self> {
+  pub fn from_parts(
+    discriminant: &str,
+    data: serde_json::Value,
+  ) -> Result<Self> {
     let wrapped = serde_json::json!({ "type": discriminant, "data": data });
     Ok(serde_json::from_value(wrapped)?)
   }
@@ -343,12 +348,12 @@ impl NewFact {
     Self {
       subject_id,
       value,
-      effective_at:      None,
-      effective_until:   None,
-      source:            None,
-      confidence:        Confidence::default(),
+      effective_at: None,
+      effective_until: None,
+      source: None,
+      confidence: Confidence::default(),
       recording_context: RecordingContext::default(),
-      tags:              Vec::new(),
+      tags: Vec::new(),
     }
   }
 }

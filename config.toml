@@ -1,7 +1,7 @@
+addressbook = "personal"
+auth_password_hash = "$argon2id$v=19$m=19456,t=2,p=1$tdUU2bctCehhlxe6Mfwv5g$muup0JLA8lJyl7UVfqvKsnGKG+zOU59W/kyLIlbWBak"
+auth_username = "johnbchron"
+base_url = "http://localhost:5232"
 host = "127.0.0.1"
 port = 5232
-base_url = "http://localhost:5232"
-addressbook = "personal"
 store_path = "~/.local/share/kith/contacts.db"
-auth_username = "johnbchron"
-auth_password_hash = "$argon2id$v=19$m=19456,t=2,p=1$tdUU2bctCehhlxe6Mfwv5g$muup0JLA8lJyl7UVfqvKsnGKG+zOU59W/kyLIlbWBak"

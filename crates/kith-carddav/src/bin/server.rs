@@ -11,14 +11,17 @@
 //! cargo run -p kith-carddav --bin server -- --hash-password
 //! ```
 
-use std::{path::{Path, PathBuf}, sync::Arc};
+use std::{
+  path::{Path, PathBuf},
+  sync::Arc,
+};
 
 use anyhow::Context as _;
 use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
-use rand_core::OsRng;
 use clap::Parser;
 use kith_carddav::{AppState, ServerConfig, auth::AuthConfig};
 use kith_store_sqlite::SqliteStore;
+use rand_core::OsRng;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -46,8 +49,8 @@ async fn main() -> anyhow::Result<()> {
   // Helper mode: hash a password and exit.
   if cli.hash_password {
     let password = rpassword_or_stdin()?;
-    let salt     = SaltString::generate(&mut OsRng);
-    let hash     = Argon2::default()
+    let salt = SaltString::generate(&mut OsRng);
+    let hash = Argon2::default()
       .hash_password(password.as_bytes(), &salt)
       .map_err(|e| anyhow::anyhow!("argon2 error: {e}"))?
       .to_string();
@@ -83,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
     config: Arc::new(server_cfg.clone()),
   };
 
-  let app     = kith_carddav::router(state);
+  let app = kith_carddav::router(state);
   let address = format!("{}:{}", server_cfg.host, server_cfg.port);
 
   tracing::info!("Listening on http://{address}");
@@ -91,9 +94,7 @@ async fn main() -> anyhow::Result<()> {
     .await
     .with_context(|| format!("failed to bind {address}"))?;
 
-  axum::serve(listener, app)
-    .await
-    .context("server error")?;
+  axum::serve(listener, app).await.context("server error")?;
 
   Ok(())
 }
@@ -106,7 +107,12 @@ fn rpassword_or_stdin() -> anyhow::Result<String> {
   io::stdout().flush().ok();
   let mut line = String::new();
   stdin.lock().read_line(&mut line)?;
-  Ok(line.trim_end_matches('\n').trim_end_matches('\r').to_string())
+  Ok(
+    line
+      .trim_end_matches('\n')
+      .trim_end_matches('\r')
+      .to_string(),
+  )
 }
 
 /// Expand a leading `~` to the user's home directory.

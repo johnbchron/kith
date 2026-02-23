@@ -3,17 +3,19 @@
 //! Uses `quick-xml`'s writer API for generation and a hand-written parser
 //! for reading PROPFIND request bodies.
 
-use quick_xml::{
-  events::{BytesEnd, BytesStart, BytesText, Event},
-  Writer,
-};
 use std::io::Cursor;
+
+use quick_xml::{
+  Writer,
+  events::{BytesEnd, BytesStart, BytesText, Event},
+};
 
 use crate::error::Error;
 
-// ─── Namespaces ───────────────────────────────────────────────────────────────
+// ─── Namespaces
+// ───────────────────────────────────────────────────────────────
 
-pub const NS_DAV:     &str = "DAV:";
+pub const NS_DAV: &str = "DAV:";
 pub const NS_CARDDAV: &str = "urn:ietf:params:xml:ns:carddav";
 
 // ─── PROPFIND request ────────────────────────────────────────────────────────
@@ -52,7 +54,7 @@ pub fn parse_propfind(xml: &[u8]) -> Result<PropfindRequest, Error> {
 
   let mut in_prop = false;
   let mut names: Vec<PropName> = Vec::new();
-  let mut buf   = Vec::new();
+  let mut buf = Vec::new();
 
   loop {
     match reader.read_event_into(&mut buf) {
@@ -60,9 +62,11 @@ pub fn parse_propfind(xml: &[u8]) -> Result<PropfindRequest, Error> {
         let name_buf = e.name();
         let local = local_name(name_buf.as_ref());
         match local {
-          b"allprop"  => return Ok(PropfindRequest::AllProp),
+          b"allprop" => return Ok(PropfindRequest::AllProp),
           b"propname" => return Ok(PropfindRequest::PropNames),
-          b"prop"     => { in_prop = true; }
+          b"prop" => {
+            in_prop = true;
+          }
           _ if in_prop => {
             names.push(parse_prop_name(local));
           }
@@ -100,17 +104,17 @@ fn local_name(name: &[u8]) -> &[u8] {
 
 fn parse_prop_name(local: &[u8]) -> PropName {
   match local {
-    b"resourcetype"            => PropName::ResourceType,
-    b"displayname"             => PropName::DisplayName,
-    b"getcontenttype"          => PropName::GetContentType,
-    b"getetag"                 => PropName::GetETag,
-    b"getcontentlength"        => PropName::GetContentLength,
-    b"getlastmodified"         => PropName::GetLastModified,
-    b"current-user-principal"  => PropName::CurrentUserPrincipal,
-    b"addressbook-home-set"    => PropName::AddressbookHomeSet,
+    b"resourcetype" => PropName::ResourceType,
+    b"displayname" => PropName::DisplayName,
+    b"getcontenttype" => PropName::GetContentType,
+    b"getetag" => PropName::GetETag,
+    b"getcontentlength" => PropName::GetContentLength,
+    b"getlastmodified" => PropName::GetLastModified,
+    b"current-user-principal" => PropName::CurrentUserPrincipal,
+    b"addressbook-home-set" => PropName::AddressbookHomeSet,
     b"addressbook-description" => PropName::AddressbookDescription,
-    b"supported-address-data"  => PropName::SupportedAddressData,
-    b"address-data"            => PropName::AddressData,
+    b"supported-address-data" => PropName::SupportedAddressData,
+    b"address-data" => PropName::AddressData,
     other => PropName::Unknown(String::from_utf8_lossy(other).into_owned()),
   }
 }
@@ -170,11 +174,17 @@ impl MultistatusBuilder {
   }
 
   pub fn response(&mut self, href: &str) -> ResponseBuilder<'_> {
-    ResponseBuilder { parent: self, href: href.to_string() }
+    ResponseBuilder {
+      parent: self,
+      href:   href.to_string(),
+    }
   }
 
   pub fn finish(mut self) -> Vec<u8> {
-    self.writer.write_event(Event::End(BytesEnd::new("D:multistatus"))).unwrap();
+    self
+      .writer
+      .write_event(Event::End(BytesEnd::new("D:multistatus")))
+      .unwrap();
     self.writer.into_inner().into_inner()
   }
 }
@@ -205,7 +215,10 @@ impl<'a> ResponseBuilder<'a> {
     self.parent
   }
 
-  pub fn propstat_not_found(self, names: &[PropName]) -> &'a mut MultistatusBuilder {
+  pub fn propstat_not_found(
+    self,
+    names: &[PropName],
+  ) -> &'a mut MultistatusBuilder {
     let w = &mut self.parent.writer;
 
     write_start(w, "D:response");
@@ -226,7 +239,8 @@ impl<'a> ResponseBuilder<'a> {
   }
 }
 
-// ─── XML writer helpers ───────────────────────────────────────────────────────
+// ─── XML writer helpers
+// ───────────────────────────────────────────────────────
 
 fn write_start(w: &mut Writer<Cursor<Vec<u8>>>, tag: &str) {
   w.write_event(Event::Start(BytesStart::new(tag))).unwrap();
@@ -246,7 +260,11 @@ fn write_empty(w: &mut Writer<Cursor<Vec<u8>>>, tag: &str) {
   w.write_event(Event::Empty(BytesStart::new(tag))).unwrap();
 }
 
-fn write_empty_with_attr(w: &mut Writer<Cursor<Vec<u8>>>, tag: &str, attrs: &[(&str, &str)]) {
+fn write_empty_with_attr(
+  w: &mut Writer<Cursor<Vec<u8>>>,
+  tag: &str,
+  attrs: &[(&str, &str)],
+) {
   let mut el = BytesStart::new(tag);
   for (k, v) in attrs {
     el.push_attribute((*k, *v));
@@ -254,7 +272,11 @@ fn write_empty_with_attr(w: &mut Writer<Cursor<Vec<u8>>>, tag: &str, attrs: &[(&
   w.write_event(Event::Empty(el)).unwrap();
 }
 
-fn write_href_element(w: &mut Writer<Cursor<Vec<u8>>>, wrapper: &str, href: &str) {
+fn write_href_element(
+  w: &mut Writer<Cursor<Vec<u8>>>,
+  wrapper: &str,
+  href: &str,
+) {
   write_start(w, wrapper);
   write_text_elem(w, "D:href", href);
   write_end(w, wrapper);
@@ -266,21 +288,31 @@ fn write_property(w: &mut Writer<Cursor<Vec<u8>>>, prop: &Property) {
       write_start(w, "D:resourcetype");
       for rt in types {
         match rt {
-          ResourceType::Collection  => write_empty(w, "D:collection"),
+          ResourceType::Collection => write_empty(w, "D:collection"),
           ResourceType::Addressbook => write_empty(w, "card:addressbook"),
-          ResourceType::Principal   => write_empty(w, "D:principal"),
+          ResourceType::Principal => write_empty(w, "D:principal"),
         }
       }
       write_end(w, "D:resourcetype");
     }
-    Property::DisplayName(name)             => write_text_elem(w, "D:displayname", name),
-    Property::GetContentType(ct)            => write_text_elem(w, "D:getcontenttype", ct),
-    Property::GetETag(etag)                 => write_text_elem(w, "D:getetag", etag),
-    Property::GetContentLength(len)         => write_text_elem(w, "D:getcontentlength", &len.to_string()),
-    Property::GetLastModified(dt)           => write_text_elem(w, "D:getlastmodified", dt),
-    Property::CurrentUserPrincipal(href)    => write_href_element(w, "D:current-user-principal", href),
-    Property::AddressbookHomeSet(href)      => write_href_element(w, "card:addressbook-home-set", href),
-    Property::AddressbookDescription(desc)  => write_text_elem(w, "card:addressbook-description", desc),
+    Property::DisplayName(name) => write_text_elem(w, "D:displayname", name),
+    Property::GetContentType(ct) => write_text_elem(w, "D:getcontenttype", ct),
+    Property::GetETag(etag) => write_text_elem(w, "D:getetag", etag),
+    Property::GetContentLength(len) => {
+      write_text_elem(w, "D:getcontentlength", &len.to_string())
+    }
+    Property::GetLastModified(dt) => {
+      write_text_elem(w, "D:getlastmodified", dt)
+    }
+    Property::CurrentUserPrincipal(href) => {
+      write_href_element(w, "D:current-user-principal", href)
+    }
+    Property::AddressbookHomeSet(href) => {
+      write_href_element(w, "card:addressbook-home-set", href)
+    }
+    Property::AddressbookDescription(desc) => {
+      write_text_elem(w, "card:addressbook-description", desc)
+    }
     Property::SupportedAddressData => {
       write_start(w, "card:supported-address-data");
       write_empty_with_attr(w, "card:address-data-type", &[
@@ -298,18 +330,18 @@ fn write_property(w: &mut Writer<Cursor<Vec<u8>>>, prop: &Property) {
 
 fn write_prop_name_elem(w: &mut Writer<Cursor<Vec<u8>>>, name: &PropName) {
   let tag = match name {
-    PropName::ResourceType           => "D:resourcetype",
-    PropName::DisplayName            => "D:displayname",
-    PropName::GetContentType         => "D:getcontenttype",
-    PropName::GetETag                => "D:getetag",
-    PropName::GetContentLength       => "D:getcontentlength",
-    PropName::GetLastModified        => "D:getlastmodified",
-    PropName::CurrentUserPrincipal   => "D:current-user-principal",
-    PropName::AddressbookHomeSet     => "card:addressbook-home-set",
+    PropName::ResourceType => "D:resourcetype",
+    PropName::DisplayName => "D:displayname",
+    PropName::GetContentType => "D:getcontenttype",
+    PropName::GetETag => "D:getetag",
+    PropName::GetContentLength => "D:getcontentlength",
+    PropName::GetLastModified => "D:getlastmodified",
+    PropName::CurrentUserPrincipal => "D:current-user-principal",
+    PropName::AddressbookHomeSet => "card:addressbook-home-set",
     PropName::AddressbookDescription => "card:addressbook-description",
-    PropName::SupportedAddressData   => "card:supported-address-data",
-    PropName::AddressData            => "card:address-data",
-    PropName::Unknown(s)             => s.as_str(),
+    PropName::SupportedAddressData => "card:supported-address-data",
+    PropName::AddressData => "card:address-data",
+    PropName::Unknown(s) => s.as_str(),
   };
   write_empty(w, tag);
 }
@@ -365,12 +397,16 @@ mod tests {
     let xml_str = std::str::from_utf8(&bytes).unwrap();
 
     // Verify both hrefs appear
-    assert!(xml_str.contains("/dav/addressbooks/personal/"),
-            "missing collection href");
-    assert!(xml_str.contains("/dav/addressbooks/personal/abc.vcf"),
-            "missing resource href");
-    assert!(xml_str.contains("200 OK"),  "missing 200 status");
-    assert!(xml_str.contains("abc123"),  "missing etag");
-    assert!(xml_str.contains("Personal"),"missing display name");
+    assert!(
+      xml_str.contains("/dav/addressbooks/personal/"),
+      "missing collection href"
+    );
+    assert!(
+      xml_str.contains("/dav/addressbooks/personal/abc.vcf"),
+      "missing resource href"
+    );
+    assert!(xml_str.contains("200 OK"), "missing 200 status");
+    assert!(xml_str.contains("abc123"), "missing etag");
+    assert!(xml_str.contains("Personal"), "missing display name");
   }
 }

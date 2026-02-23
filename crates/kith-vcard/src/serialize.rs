@@ -10,9 +10,11 @@ use kith_core::{
 
 use crate::error::Result;
 
-// ─── RFC 6350 line folding ────────────────────────────────────────────────────
+// ─── RFC 6350 line folding
+// ────────────────────────────────────────────────────
 
-/// Emit `s` as one logical line, folding at 75 octets with CRLF + SP continuation.
+/// Emit `s` as one logical line, folding at 75 octets with CRLF + SP
+/// continuation.
 pub(crate) fn fold_line(s: &str) -> String {
   if s.len() <= 75 {
     return format!("{}\r\n", s);
@@ -25,7 +27,7 @@ pub(crate) fn fold_line(s: &str) -> String {
 
   while pos < total {
     let limit = if first { 75 } else { 74 };
-    let end   = if pos + limit >= total {
+    let end = if pos + limit >= total {
       total
     } else {
       // Walk back to the nearest valid UTF-8 char boundary
@@ -42,61 +44,63 @@ pub(crate) fn fold_line(s: &str) -> String {
     }
     result.push_str(&s[pos..end]);
     result.push_str("\r\n");
-    pos   = end;
+    pos = end;
     first = false;
   }
 
   result
 }
 
-// ─── Value escaping ───────────────────────────────────────────────────────────
+// ─── Value escaping
+// ───────────────────────────────────────────────────────────
 
 /// Escape a full property value: `\`, `,`, `;`, `\n`.
 fn escape_value(s: &str) -> String {
   s.replace('\\', "\\\\")
-   .replace(',', "\\,")
-   .replace(';', "\\;")
-   .replace('\n', "\\n")
+    .replace(',', "\\,")
+    .replace(';', "\\;")
+    .replace('\n', "\\n")
 }
 
 /// Escape a semicolon-delimited component (N / ADR field): `\`, `;`, `\n`.
 /// Commas are list-separators within a component and are not escaped here.
 fn escape_component(s: &str) -> String {
   s.replace('\\', "\\\\")
-   .replace(';', "\\;")
-   .replace('\n', "\\n")
+    .replace(';', "\\;")
+    .replace('\n', "\\n")
 }
 
-// ─── TYPE / PREF helpers ──────────────────────────────────────────────────────
+// ─── TYPE / PREF helpers
+// ──────────────────────────────────────────────────────
 
 fn label_type_str(label: &ContactLabel) -> &'static str {
   match label {
-    ContactLabel::Work       => "WORK",
-    ContactLabel::Home       => "HOME",
-    ContactLabel::Other      => "OTHER",
-    ContactLabel::Custom(_)  => "OTHER",
+    ContactLabel::Work => "WORK",
+    ContactLabel::Home => "HOME",
+    ContactLabel::Other => "OTHER",
+    ContactLabel::Custom(_) => "OTHER",
   }
 }
 
 fn phone_kind_str(kind: PhoneKind) -> &'static str {
   match kind {
-    PhoneKind::Voice  => "VOICE",
-    PhoneKind::Fax    => "FAX",
-    PhoneKind::Cell   => "CELL",
-    PhoneKind::Pager  => "PAGER",
-    PhoneKind::Text   => "TEXT",
-    PhoneKind::Video  => "VIDEO",
-    PhoneKind::Other  => "OTHER",
+    PhoneKind::Voice => "VOICE",
+    PhoneKind::Fax => "FAX",
+    PhoneKind::Cell => "CELL",
+    PhoneKind::Pager => "PAGER",
+    PhoneKind::Text => "TEXT",
+    PhoneKind::Video => "VIDEO",
+    PhoneKind::Other => "OTHER",
   }
 }
 
 fn url_context_type(ctx: &UrlContext) -> String {
   match ctx {
-    UrlContext::Homepage    => "HOME".to_string(),
-    UrlContext::LinkedIn    => "LINKEDIN".to_string(),
-    UrlContext::GitHub      => "GITHUB".to_string(),
-    UrlContext::Mastodon    => "MASTODON".to_string(),
-    UrlContext::Custom(s)   => s.clone(),
+    UrlContext::Homepage => "HOME".to_string(),
+    UrlContext::LinkedIn => "LINKEDIN".to_string(),
+    UrlContext::GitHub => "GITHUB".to_string(),
+    UrlContext::Mastodon => "MASTODON".to_string(),
+    UrlContext::Custom(s) => s.clone(),
   }
 }
 
@@ -104,37 +108,39 @@ fn format_naive_date(d: chrono::NaiveDate) -> String {
   d.format("%Y%m%d").to_string()
 }
 
-// ─── IM scheme helpers ─────────────────────────────────────────────────────────
+// ─── IM scheme helpers
+// ─────────────────────────────────────────────────────────
 
 fn service_to_scheme(service: &str) -> &'static str {
   match service.to_lowercase().as_str() {
-    "xmpp" | "jabber"  => "xmpp",
-    "sip"              => "sip",
-    "aim"              => "aim",
-    "yahoo"            => "ymsgr",
-    "msn"              => "msnim",
-    "google talk"      => "gtalk",
-    "skype"            => "skype",
-    "irc"              => "irc",
-    "matrix"           => "matrix",
-    _                  => "x-unknown",
+    "xmpp" | "jabber" => "xmpp",
+    "sip" => "sip",
+    "aim" => "aim",
+    "yahoo" => "ymsgr",
+    "msn" => "msnim",
+    "google talk" => "gtalk",
+    "skype" => "skype",
+    "irc" => "irc",
+    "matrix" => "matrix",
+    _ => "x-unknown",
   }
 }
 
 fn service_to_x_prop(service: &str) -> &'static str {
   match service.to_lowercase().as_str() {
-    "xmpp" | "jabber"  => "X-JABBER",
-    "aim"              => "X-AIM",
-    "yahoo"            => "X-YAHOO",
-    "msn"              => "X-MSN",
-    "skype"            => "X-SKYPE",
-    "icq"              => "X-ICQ",
-    "google talk"      => "X-GOOGLE-TALK",
-    _                  => "X-IM",
+    "xmpp" | "jabber" => "X-JABBER",
+    "aim" => "X-AIM",
+    "yahoo" => "X-YAHOO",
+    "msn" => "X-MSN",
+    "skype" => "X-SKYPE",
+    "icq" => "X-ICQ",
+    "google talk" => "X-GOOGLE-TALK",
+    _ => "X-IM",
   }
 }
 
-// ─── Inner serializer (shared between v3 / v4) ────────────────────────────────
+// ─── Inner serializer (shared between v3 / v4)
+// ────────────────────────────────
 
 fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
   let facts: Vec<&FactValue> =
@@ -144,7 +150,11 @@ fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
   let org_memberships: Vec<&kith_core::fact::OrgMembershipValue> = facts
     .iter()
     .filter_map(|f| {
-      if let FactValue::OrgMembership(o) = f { Some(o) } else { None }
+      if let FactValue::OrgMembership(o) = f {
+        Some(o)
+      } else {
+        None
+      }
     })
     .collect();
   let multi_org = org_memberships.len() > 1;
@@ -161,12 +171,32 @@ fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
     match fact {
       FactValue::Name(n) => {
         lines.push(fold_line(&format!("FN:{}", escape_value(&n.full))));
-        let family     = n.family    .as_deref().map(escape_component).unwrap_or_default();
-        let given      = n.given     .as_deref().map(escape_component).unwrap_or_default();
-        let additional = n.additional.as_deref().map(escape_component).unwrap_or_default();
-        let prefix     = n.prefix    .as_deref().map(escape_component).unwrap_or_default();
-        let suffix     = n.suffix    .as_deref().map(escape_component).unwrap_or_default();
-        lines.push(fold_line(&format!("N:{};{};{};{};{}", family, given, additional, prefix, suffix)));
+        let family = n
+          .family
+          .as_deref()
+          .map(escape_component)
+          .unwrap_or_default();
+        let given =
+          n.given.as_deref().map(escape_component).unwrap_or_default();
+        let additional = n
+          .additional
+          .as_deref()
+          .map(escape_component)
+          .unwrap_or_default();
+        let prefix = n
+          .prefix
+          .as_deref()
+          .map(escape_component)
+          .unwrap_or_default();
+        let suffix = n
+          .suffix
+          .as_deref()
+          .map(escape_component)
+          .unwrap_or_default();
+        lines.push(fold_line(&format!(
+          "N:{};{};{};{};{}",
+          family, given, additional, prefix, suffix
+        )));
       }
 
       FactValue::Alias(a) => {
@@ -197,7 +227,10 @@ fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
         let type_str = label_type_str(&e.label);
         let line = if v4 {
           if e.preference < 255 {
-            format!("EMAIL;TYPE={};PREF={}:{}", type_str, e.preference, e.address)
+            format!(
+              "EMAIL;TYPE={};PREF={}:{}",
+              type_str, e.preference, e.address
+            )
           } else {
             format!("EMAIL;TYPE={}:{}", type_str, e.address)
           }
@@ -216,7 +249,10 @@ fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
         let kind_str = phone_kind_str(p.kind);
         let line = if v4 {
           if p.preference < 255 {
-            format!("TEL;TYPE={},{};PREF={}:{}", type_str, kind_str, p.preference, p.number)
+            format!(
+              "TEL;TYPE={},{};PREF={}:{}",
+              type_str, kind_str, p.preference, p.number
+            )
           } else {
             format!("TEL;TYPE={},{}:{}", type_str, kind_str, p.number)
           }
@@ -231,12 +267,32 @@ fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
       }
 
       FactValue::Address(a) => {
-        let type_str    = label_type_str(&a.label);
-        let street      = a.street     .as_deref().map(escape_component).unwrap_or_default();
-        let locality    = a.locality   .as_deref().map(escape_component).unwrap_or_default();
-        let region      = a.region     .as_deref().map(escape_component).unwrap_or_default();
-        let postal_code = a.postal_code.as_deref().map(escape_component).unwrap_or_default();
-        let country     = a.country    .as_deref().map(escape_component).unwrap_or_default();
+        let type_str = label_type_str(&a.label);
+        let street = a
+          .street
+          .as_deref()
+          .map(escape_component)
+          .unwrap_or_default();
+        let locality = a
+          .locality
+          .as_deref()
+          .map(escape_component)
+          .unwrap_or_default();
+        let region = a
+          .region
+          .as_deref()
+          .map(escape_component)
+          .unwrap_or_default();
+        let postal_code = a
+          .postal_code
+          .as_deref()
+          .map(escape_component)
+          .unwrap_or_default();
+        let country = a
+          .country
+          .as_deref()
+          .map(escape_component)
+          .unwrap_or_default();
         lines.push(fold_line(&format!(
           "ADR;TYPE={}:;;{};{};{};{};{}",
           type_str, street, locality, region, postal_code, country
@@ -254,7 +310,11 @@ fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
           lines.push(fold_line(&format!("IMPP:{}:{}", scheme, im.handle)));
         } else {
           let prop = service_to_x_prop(&im.service);
-          lines.push(fold_line(&format!("{}:{}", prop, escape_value(&im.handle))));
+          lines.push(fold_line(&format!(
+            "{}:{}",
+            prop,
+            escape_value(&im.handle)
+          )));
         }
       }
 
@@ -271,7 +331,11 @@ fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
         if let Some(oid) = r.other_id {
           prop.push_str(&format!(";OTHER-ID={}", oid));
         }
-        let other_name = r.other_name.as_deref().map(escape_value).unwrap_or_default();
+        let other_name = r
+          .other_name
+          .as_deref()
+          .map(escape_value)
+          .unwrap_or_default();
         lines.push(fold_line(&format!("{}:{}", prop, other_name)));
       }
 
@@ -280,7 +344,11 @@ fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
         if let Some(gid) = g.group_id {
           prop.push_str(&format!(";GROUP-ID={}", gid));
         }
-        lines.push(fold_line(&format!("{}:{}", prop, escape_value(&g.group_name))));
+        lines.push(fold_line(&format!(
+          "{}:{}",
+          prop,
+          escape_value(&g.group_name)
+        )));
       }
 
       FactValue::Note(n) => {
@@ -292,11 +360,18 @@ fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
         if let Some(ref loc) = m.location {
           prop.push_str(&format!(";LOCATION={}", loc));
         }
-        lines.push(fold_line(&format!("{}:{}", prop, escape_value(&m.summary))));
+        lines.push(fold_line(&format!(
+          "{}:{}",
+          prop,
+          escape_value(&m.summary)
+        )));
       }
 
       FactValue::Introduction(s) => {
-        lines.push(fold_line(&format!("X-KITH-INTRODUCTION:{}", escape_value(s))));
+        lines.push(fold_line(&format!(
+          "X-KITH-INTRODUCTION:{}",
+          escape_value(s)
+        )));
       }
 
       FactValue::Custom { key, value } => {
@@ -309,7 +384,11 @@ fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
         } else {
           format!("X-{}", key.to_uppercase())
         };
-        lines.push(fold_line(&format!("{}:{}", prop_name, escape_value(&val_str))));
+        lines.push(fold_line(&format!(
+          "{}:{}",
+          prop_name,
+          escape_value(&val_str)
+        )));
       }
 
       // Handled below with group-prefix logic
@@ -319,10 +398,22 @@ fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
 
   // ── OrgMembership with optional group prefix ──────────────────────────────
   for (idx, org) in org_memberships.iter().enumerate() {
-    let prefix = if multi_org { format!("ORG{}.", idx + 1) } else { String::new() };
-    lines.push(fold_line(&format!("{}ORG:{}", prefix, escape_value(&org.org_name))));
+    let prefix = if multi_org {
+      format!("ORG{}.", idx + 1)
+    } else {
+      String::new()
+    };
+    lines.push(fold_line(&format!(
+      "{}ORG:{}",
+      prefix,
+      escape_value(&org.org_name)
+    )));
     if let Some(ref title) = org.title {
-      lines.push(fold_line(&format!("{}TITLE:{}", prefix, escape_value(title))));
+      lines.push(fold_line(&format!(
+        "{}TITLE:{}",
+        prefix,
+        escape_value(title)
+      )));
     }
     if let Some(ref role) = org.role {
       lines.push(fold_line(&format!("{}ROLE:{}", prefix, escape_value(role))));
@@ -332,14 +423,15 @@ fn serialize_body(view: &ContactView, v4: bool) -> Result<String> {
   Ok(lines.join(""))
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+// ─── Public API
+// ───────────────────────────────────────────────────────────────
 
 /// Serialize `view` as a vCard 4.0 string.
 pub fn serialize(view: &ContactView) -> Result<String> {
   let kind_str = match view.subject.kind {
-    SubjectKind::Person       => "individual",
+    SubjectKind::Person => "individual",
     SubjectKind::Organization => "org",
-    SubjectKind::Group        => "group",
+    SubjectKind::Group => "group",
   };
   let rev = view.as_of.format("%Y%m%dT%H%M%SZ").to_string();
 
@@ -375,50 +467,62 @@ pub fn serialize_v3(view: &ContactView) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
   use chrono::{NaiveDate, TimeZone, Utc};
   use kith_core::{
     fact::{
-      AddressValue, ContactLabel, EmailValue, FactValue, NameValue, OrgMembershipValue,
-      PhoneKind, PhoneValue, RecordingContext, SocialValue,
+      AddressValue, ContactLabel, EmailValue, FactValue, NameValue,
+      OrgMembershipValue, PhoneKind, PhoneValue, RecordingContext, SocialValue,
     },
     lifecycle::{ContactView, FactStatus, ResolvedFact},
     subject::{Subject, SubjectKind},
   };
   use uuid::Uuid;
 
+  use super::*;
+
   fn make_view(facts: Vec<FactValue>) -> ContactView {
     let subject_id = Uuid::new_v4();
-    let subject    = Subject {
+    let subject = Subject {
       subject_id,
       created_at: Utc::now(),
-      kind:       SubjectKind::Person,
+      kind: SubjectKind::Person,
     };
-    let as_of      = Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap();
-    let active_facts = facts.into_iter().map(|v| {
-      let fact = kith_core::fact::Fact {
-        fact_id:           Uuid::new_v4(),
-        subject_id,
-        value:             v,
-        recorded_at:       as_of,
-        effective_at:      None,
-        effective_until:   None,
-        source:            None,
-        confidence:        kith_core::fact::Confidence::Certain,
-        recording_context: RecordingContext::Manual,
-        tags:              vec![],
-      };
-      ResolvedFact { fact, status: FactStatus::Active }
-    }).collect();
-    ContactView { subject, as_of, active_facts }
+    let as_of = Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap();
+    let active_facts = facts
+      .into_iter()
+      .map(|v| {
+        let fact = kith_core::fact::Fact {
+          fact_id: Uuid::new_v4(),
+          subject_id,
+          value: v,
+          recorded_at: as_of,
+          effective_at: None,
+          effective_until: None,
+          source: None,
+          confidence: kith_core::fact::Confidence::Certain,
+          recording_context: RecordingContext::Manual,
+          tags: vec![],
+        };
+        ResolvedFact {
+          fact,
+          status: FactStatus::Active,
+        }
+      })
+      .collect();
+    ContactView {
+      subject,
+      as_of,
+      active_facts,
+    }
   }
 
-  // ── Envelope ────────────────────────────────────────────────────────────────
+  // ── Envelope
+  // ────────────────────────────────────────────────────────────────
 
   #[test]
   fn envelope_contains_required_lines() {
     let view = make_view(vec![]);
-    let out  = serialize(&view).unwrap();
+    let out = serialize(&view).unwrap();
     assert!(out.contains("BEGIN:VCARD\r\n"));
     assert!(out.contains("VERSION:4.0\r\n"));
     assert!(out.contains("UID:"));
@@ -452,7 +556,10 @@ mod tests {
       preference: 1,
     });
     let out = serialize(&make_view(vec![email])).unwrap();
-    assert!(out.contains("EMAIL;TYPE=WORK;PREF=1:alice@example.com\r\n"), "got:\n{out}");
+    assert!(
+      out.contains("EMAIL;TYPE=WORK;PREF=1:alice@example.com\r\n"),
+      "got:\n{out}"
+    );
   }
 
   #[test]
@@ -482,22 +589,25 @@ mod tests {
     assert!(out.contains("TEL;TYPE=HOME,VOICE:+15555551234\r\n"));
   }
 
-  // ── Line folding ─────────────────────────────────────────────────────────────
+  // ── Line folding
+  // ─────────────────────────────────────────────────────────────
 
   #[test]
   fn long_note_is_folded() {
     let note = FactValue::Note("A".repeat(200));
-    let out  = serialize(&make_view(vec![note])).unwrap();
+    let out = serialize(&make_view(vec![note])).unwrap();
     for physical_line in out.split("\r\n").filter(|l| !l.is_empty()) {
       assert!(
         physical_line.len() <= 75,
         "physical line too long ({} bytes): {:?}",
-        physical_line.len(), physical_line
+        physical_line.len(),
+        physical_line
       );
     }
   }
 
-  // ── Address escaping ─────────────────────────────────────────────────────────
+  // ── Address escaping
+  // ─────────────────────────────────────────────────────────
 
   #[test]
   fn semicolons_in_address_are_escaped() {
@@ -510,10 +620,14 @@ mod tests {
       country:     None,
     });
     let out = serialize(&make_view(vec![addr])).unwrap();
-    assert!(out.contains("123 Main\\; Suite 4"), "missing escape in:\n{out}");
+    assert!(
+      out.contains("123 Main\\; Suite 4"),
+      "missing escape in:\n{out}"
+    );
   }
 
-  // ── Multiple OrgMembership → group prefixes ───────────────────────────────────
+  // ── Multiple OrgMembership → group prefixes
+  // ───────────────────────────────────
 
   #[test]
   fn two_org_memberships_get_prefixes() {
@@ -530,7 +644,10 @@ mod tests {
       role:     None,
     });
     let out = serialize(&make_view(vec![o1, o2])).unwrap();
-    assert!(out.contains("ORG1.ORG:Acme Corp\r\n"), "missing ORG1.ORG in:\n{out}");
+    assert!(
+      out.contains("ORG1.ORG:Acme Corp\r\n"),
+      "missing ORG1.ORG in:\n{out}"
+    );
     assert!(out.contains("ORG1.TITLE:Engineer\r\n"));
     assert!(out.contains("ORG2.ORG:OSF\r\n"));
     assert!(out.contains("ORG2.TITLE:Board Member\r\n"));
@@ -549,7 +666,8 @@ mod tests {
     assert!(!out.contains("ORG1."), "unexpected prefix in:\n{out}");
   }
 
-  // ── X-KITH-SOCIAL ────────────────────────────────────────────────────────────
+  // ── X-KITH-SOCIAL
+  // ────────────────────────────────────────────────────────────
 
   #[test]
   fn social_emitted_correctly() {
@@ -558,18 +676,27 @@ mod tests {
       platform: "Twitter".to_string(),
     });
     let out = serialize(&make_view(vec![s])).unwrap();
-    assert!(out.contains("X-KITH-SOCIAL;PLATFORM=Twitter:@alice\r\n"), "got:\n{out}");
+    assert!(
+      out.contains("X-KITH-SOCIAL;PLATFORM=Twitter:@alice\r\n"),
+      "got:\n{out}"
+    );
   }
 
-  // ── v3 differences ───────────────────────────────────────────────────────────
+  // ── v3 differences
+  // ───────────────────────────────────────────────────────────
 
   #[test]
   fn v3_anniversary_becomes_x_anniversary() {
-    let ann = FactValue::Anniversary(NaiveDate::from_ymd_opt(2020, 6, 15).unwrap());
+    let ann =
+      FactValue::Anniversary(NaiveDate::from_ymd_opt(2020, 6, 15).unwrap());
     let out = serialize_v3(&make_view(vec![ann])).unwrap();
     assert!(out.contains("X-ANNIVERSARY:20200615\r\n"), "got:\n{out}");
-    // Ensure the bare RFC 6350 "ANNIVERSARY:" line is absent (not just any substring)
-    assert!(!out.contains("\r\nANNIVERSARY:"), "bare ANNIVERSARY present in v3:\n{out}");
+    // Ensure the bare RFC 6350 "ANNIVERSARY:" line is absent (not just any
+    // substring)
+    assert!(
+      !out.contains("\r\nANNIVERSARY:"),
+      "bare ANNIVERSARY present in v3:\n{out}"
+    );
   }
 
   #[test]
@@ -586,7 +713,10 @@ mod tests {
       preference: 1,
     });
     let out = serialize_v3(&make_view(vec![email])).unwrap();
-    assert!(out.contains("EMAIL;TYPE=WORK,PREF:a@b.com\r\n"), "got:\n{out}");
+    assert!(
+      out.contains("EMAIL;TYPE=WORK,PREF:a@b.com\r\n"),
+      "got:\n{out}"
+    );
   }
 
   #[test]

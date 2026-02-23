@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::{
   fact::{Confidence, NewFact},
-  lifecycle::{ContactView, Retraction, ResolvedFact, Supersession},
+  lifecycle::{ContactView, ResolvedFact, Retraction, Supersession},
   subject::{Subject, SubjectKind},
 };
 
@@ -21,18 +21,18 @@ use crate::{
 #[derive(Debug, Clone, Default)]
 pub struct FactQuery {
   /// Free-text filter applied over serialised fact values.
-  pub text:           Option<String>,
+  pub text:            Option<String>,
   /// Restrict to subjects of a specific kind.
-  pub kind:           Option<SubjectKind>,
+  pub kind:            Option<SubjectKind>,
   /// Restrict to specific fact type discriminants (e.g. `["email", "phone"]`).
-  pub fact_types:     Vec<String>,
+  pub fact_types:      Vec<String>,
   /// All returned subjects must have facts with all of these tags.
-  pub tags:           Vec<String>,
-  pub confidence:     Option<Confidence>,
-  pub recorded_after: Option<DateTime<Utc>>,
+  pub tags:            Vec<String>,
+  pub confidence:      Option<Confidence>,
+  pub recorded_after:  Option<DateTime<Utc>>,
   pub recorded_before: Option<DateTime<Utc>>,
-  pub limit:          Option<usize>,
-  pub offset:         Option<usize>,
+  pub limit:           Option<usize>,
+  pub offset:          Option<usize>,
 }
 
 // ─── Trait ───────────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ pub trait ContactStore: Send + Sync {
   /// URL path. Returns an error if the UUID is already taken.
   fn add_subject_with_id(
     &self,
-    id:   Uuid,
+    id: Uuid,
     kind: SubjectKind,
   ) -> impl Future<Output = Result<Subject, Self::Error>> + Send + '_;
 
@@ -95,9 +95,11 @@ pub trait ContactStore: Send + Sync {
   /// `old_id == replacement.fact_id` (self-supersession).
   fn supersede(
     &self,
-    old_id:      Uuid,
+    old_id: Uuid,
     replacement: NewFact,
-  ) -> impl Future<Output = Result<(Supersession, crate::fact::Fact), Self::Error>> + Send + '_;
+  ) -> impl Future<Output = Result<(Supersession, crate::fact::Fact), Self::Error>>
+  + Send
+  + '_;
 
   /// Retract a fact entirely (no replacement).
   ///
@@ -105,7 +107,7 @@ pub trait ContactStore: Send + Sync {
   fn retract(
     &self,
     fact_id: Uuid,
-    reason:  Option<String>,
+    reason: Option<String>,
   ) -> impl Future<Output = Result<Retraction, Self::Error>> + Send + '_;
 
   // ── Reads ─────────────────────────────────────────────────────────────
@@ -116,8 +118,8 @@ pub trait ContactStore: Send + Sync {
   /// - `include_inactive`: if `false`, only `Active` facts are returned.
   fn get_facts(
     &self,
-    subject_id:       Uuid,
-    as_of:            Option<DateTime<Utc>>,
+    subject_id: Uuid,
+    as_of: Option<DateTime<Utc>>,
     include_inactive: bool,
   ) -> impl Future<Output = Result<Vec<ResolvedFact>, Self::Error>> + Send + '_;
 
@@ -126,7 +128,7 @@ pub trait ContactStore: Send + Sync {
   fn materialize(
     &self,
     subject_id: Uuid,
-    as_of:      Option<DateTime<Utc>>,
+    as_of: Option<DateTime<Utc>>,
   ) -> impl Future<Output = Result<Option<ContactView>, Self::Error>> + Send + '_;
 
   /// Search for subjects matching `query`. Phase-1 implementation uses SQL

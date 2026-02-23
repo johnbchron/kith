@@ -8,14 +8,10 @@ use axum::{
 };
 use kith_core::store::ContactStore;
 
-use crate::{
-  AppState,
-  error::Error,
-  handlers::propfind::parse_uid,
-};
+use crate::{AppState, error::Error, handlers::propfind::parse_uid};
 
 pub async fn handler<S>(
-  state:   &AppState<S>,
+  state: &AppState<S>,
   uid_vcf: &str,
 ) -> Result<Response, Error>
 where
@@ -24,19 +20,22 @@ where
 {
   let uid = parse_uid(uid_vcf)?;
 
-  state.store
+  state
+    .store
     .get_subject(uid)
     .await
     .map_err(|e| Error::Store(Box::new(e)))?
     .ok_or(Error::NotFound)?;
 
-  let facts = state.store
+  let facts = state
+    .store
     .get_facts(uid, None, false)
     .await
     .map_err(|e| Error::Store(Box::new(e)))?;
 
   for rf in facts {
-    state.store
+    state
+      .store
       .retract(rf.fact.fact_id, Some("Deleted via CardDAV".to_string()))
       .await
       .map_err(|e| Error::Store(Box::new(e)))?;

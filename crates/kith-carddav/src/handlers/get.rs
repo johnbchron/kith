@@ -8,15 +8,12 @@ use axum::{
 use kith_core::store::ContactStore;
 
 use crate::{
-  AppState,
-  error::Error,
-  etag::compute_etag,
-  handlers::propfind::parse_uid,
+  AppState, error::Error, etag::compute_etag, handlers::propfind::parse_uid,
 };
 
 pub async fn handler<S>(
-  state:   &AppState<S>,
-  method:  &Method,
+  state: &AppState<S>,
+  method: &Method,
   uid_vcf: &str,
 ) -> Result<Response, Error>
 where
@@ -25,14 +22,15 @@ where
 {
   let uid = parse_uid(uid_vcf)?;
 
-  let view = state.store
+  let view = state
+    .store
     .materialize(uid, None)
     .await
     .map_err(|e| Error::Store(Box::new(e)))?
     .filter(|v| !v.active_facts.is_empty())
     .ok_or(Error::NotFound)?;
 
-  let etag  = compute_etag(&view);
+  let etag = compute_etag(&view);
   let vcard = kith_vcard::serialize(&view)?;
 
   let builder = Response::builder()

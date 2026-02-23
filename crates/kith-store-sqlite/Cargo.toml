@@ -1,14 +1,14 @@
 [package]
-name    = "kith-store-sqlite"
-version.workspace = true
 edition.workspace = true
+name = "kith-store-sqlite"
+version.workspace = true
 
 [dependencies]
-kith-core      = { path = "../kith-core" }
-chrono         = { workspace = true }
-rusqlite       = { workspace = true }
-serde_json     = { workspace = true }
-thiserror      = { workspace = true }
-tokio          = { workspace = true }
+chrono = { workspace = true }
+kith-core = { path = "../kith-core" }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
 tokio-rusqlite = { workspace = true }
-uuid           = { workspace = true }
+uuid = { workspace = true }

@@ -30,20 +30,29 @@ impl IntoResponse for Error {
   fn into_response(self) -> Response {
     match self {
       Error::Unauthorized => {
-        let mut res = (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+        let mut res =
+          (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
         res.headers_mut().insert(
           header::WWW_AUTHENTICATE,
           HeaderValue::from_static("Basic realm=\"kith\""),
         );
         res
       }
-      Error::NotFound           => (StatusCode::NOT_FOUND, "Not Found").into_response(),
-      Error::PreconditionFailed => (StatusCode::PRECONDITION_FAILED, "Precondition Failed").into_response(),
-      Error::Conflict(msg)      => (StatusCode::CONFLICT, msg).into_response(),
-      Error::BadRequest(msg)    => (StatusCode::BAD_REQUEST, msg).into_response(),
-      Error::Xml(msg)           => (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
-      Error::Vcard(e)           => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-      Error::Store(e)           => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+      Error::NotFound => (StatusCode::NOT_FOUND, "Not Found").into_response(),
+      Error::PreconditionFailed => {
+        (StatusCode::PRECONDITION_FAILED, "Precondition Failed").into_response()
+      }
+      Error::Conflict(msg) => (StatusCode::CONFLICT, msg).into_response(),
+      Error::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
+      Error::Xml(msg) => {
+        (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+      }
+      Error::Vcard(e) => {
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+      }
+      Error::Store(e) => {
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+      }
     }
   }
 }
