@@ -24,6 +24,7 @@ KITH_BASE_URL = "https://contacts.jlewis.sh"
 KITH_HOST = "[::]"
 KITH_PORT = "5232"
 KITH_STORE_PATH = "/data/contacts.db"
+RUST_LOG = "debug"
 
 [mounts]
 destination = "/data"
