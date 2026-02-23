@@ -3,10 +3,6 @@ edition.workspace = true
 name = "kith-cli"
 version.workspace = true
 
-[[bin]]
-name = "kith"
-path = "src/main.rs"
-
 [dependencies]
 kith-core = { path = "../kith-core" }
 kith-store-sqlite = { path = "../kith-store-sqlite" }

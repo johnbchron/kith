@@ -23,6 +23,7 @@ use kith_carddav::{AppState, ServerConfig, auth::AuthConfig};
 use kith_store_sqlite::SqliteStore;
 use rand_core::OsRng;
 use tokio::net::TcpListener;
+use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -41,7 +42,11 @@ struct Cli {
 async fn main() -> anyhow::Result<()> {
   // Initialise tracing.
   tracing_subscriber::fmt()
-    .with_env_filter(EnvFilter::from_default_env())
+    .with_env_filter(
+      EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy(),
+    )
     .init();
 
   let cli = Cli::parse();
