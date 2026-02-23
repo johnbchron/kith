@@ -23,7 +23,7 @@ KITH_AUTH_USERNAME = "johnbchron"
 KITH_BASE_URL = "https://contacts.jlewis.sh"
 KITH_HOST = "[::]"
 KITH_PORT = "5232"
-KITH_STORE_PATH = "/data"
+KITH_STORE_PATH = "/data/contacts.db"
 
 [mounts]
 destination = "/data"
