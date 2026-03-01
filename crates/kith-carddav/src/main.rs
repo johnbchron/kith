@@ -23,6 +23,8 @@ use kith_carddav::{AppState, ServerConfig, auth::AuthConfig};
 use kith_store_sqlite::SqliteStore;
 use rand_core::OsRng;
 use tokio::net::TcpListener;
+use tower::make::Shared;
+use tower_http::normalize_path::NormalizePath;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -92,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
     config: Arc::new(server_cfg.clone()),
   };
 
-  let app = kith_carddav::router(state);
+  let app = NormalizePath::trim_trailing_slash(kith_carddav::router(state));
   let address = format!("{}:{}", server_cfg.host, server_cfg.port);
 
   tracing::info!("Listening on http://{address}");
@@ -100,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
     .await
     .with_context(|| format!("failed to bind {address}"))?;
 
-  axum::serve(listener, app).await.context("server error")?;
+  axum::serve(listener, Shared::new(app)).await.context("server error")?;
 
   Ok(())
 }

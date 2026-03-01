@@ -18,7 +18,7 @@ use axum::{
   body::Body,
   extract::{Request, State},
   http::{Method, StatusCode},
-  response::{IntoResponse, Response},
+  response::{IntoResponse, Redirect, Response},
   routing::any,
 };
 use bytes::Bytes;
@@ -63,9 +63,10 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   Router::new()
-    .route("/dav/", any(dav_root_handler::<S>))
-    .route("/dav/addressbooks/", any(dav_home_handler::<S>))
-    .route("/dav/addressbooks/{ab}/", any(dav_collection_handler::<S>))
+    .route("/.well-known/dav", any(well_known_dav_handler))
+    .route("/dav", any(dav_root_handler::<S>))
+    .route("/dav/addressbooks", any(dav_home_handler::<S>))
+    .route("/dav/addressbooks/{ab}", any(dav_collection_handler::<S>))
     .route(
       "/dav/addressbooks/{ab}/{uid_vcf}",
       any(dav_resource_handler::<S>),
@@ -298,6 +299,10 @@ where
   }
 }
 
+async fn well_known_dav_handler() -> Redirect {
+  Redirect::permanent("/dav")
+}
+
 // ─── Helper trait ────────────────────────────────────────────────────────────
 
 trait IntoResponseOrErr {
@@ -382,7 +387,7 @@ mod tests {
   async fn options_returns_204_with_dav_header() {
     let state = make_state("secret").await;
     let resp =
-      oneshot_raw(state, "OPTIONS", "/dav/addressbooks/personal/", vec![], "")
+      oneshot_raw(state, "OPTIONS", "/dav/addressbooks/personal", vec![], "")
         .await;
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     let dav_val = resp.headers().get("dav").unwrap().to_str().unwrap();
@@ -400,7 +405,7 @@ mod tests {
     let resp = oneshot_raw(
       state,
       "PROPFIND",
-      "/dav/addressbooks/personal/",
+      "/dav/addressbooks/personal",
       vec![
         (header::AUTHORIZATION, auth.as_str()),
         (header::HeaderName::from_static("depth"), "1"),
@@ -436,7 +441,7 @@ mod tests {
     let resp = oneshot_raw(
       state,
       "PROPFIND",
-      "/dav/addressbooks/personal/",
+      "/dav/addressbooks/personal",
       vec![
         (header::AUTHORIZATION, auth.as_str()),
         (header::HeaderName::from_static("depth"), "1"),
