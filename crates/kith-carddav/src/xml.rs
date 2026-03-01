@@ -140,6 +140,7 @@ pub enum Property {
   AddressbookHomeSet(String),
   AddressbookDescription(String),
   SupportedAddressData,
+  AddressData(String),
 }
 
 pub struct MultistatusBuilder {
@@ -212,6 +213,17 @@ impl<'a> ResponseBuilder<'a> {
     write_end(w, "D:propstat");
     write_end(w, "D:response");
 
+    self.parent
+  }
+
+  /// Emit a bare `<D:status>` response (no propstat), used for 404 in
+  /// addressbook-multiget when the resource doesn't exist at all.
+  pub fn status_not_found(self) -> &'a mut MultistatusBuilder {
+    let w = &mut self.parent.writer;
+    write_start(w, "D:response");
+    write_text_elem(w, "D:href", &self.href);
+    write_text_elem(w, "D:status", "HTTP/1.1 404 Not Found");
+    write_end(w, "D:response");
     self.parent
   }
 
@@ -325,6 +337,7 @@ fn write_property(w: &mut Writer<Cursor<Vec<u8>>>, prop: &Property) {
       ]);
       write_end(w, "card:supported-address-data");
     }
+    Property::AddressData(data) => write_text_elem(w, "card:address-data", data),
   }
 }
 
@@ -344,6 +357,100 @@ fn write_prop_name_elem(w: &mut Writer<Cursor<Vec<u8>>>, name: &PropName) {
     PropName::Unknown(s) => s.as_str(),
   };
   write_empty(w, tag);
+}
+
+// ─── REPORT request parsing ──────────────────────────────────────────────────
+
+#[derive(Debug, PartialEq)]
+pub enum ReportKind {
+  /// `card:addressbook-multiget` — fetch specific resources by href.
+  Multiget,
+  /// `card:addressbook-query` — fetch resources matching a filter.
+  Query,
+}
+
+#[derive(Debug)]
+pub struct ReportRequest {
+  pub kind:  ReportKind,
+  /// The `<D:prop>` names requested by the client.
+  pub props: Vec<PropName>,
+  /// Hrefs listed by the client (only populated for `Multiget`).
+  pub hrefs: Vec<String>,
+}
+
+/// Parse an `addressbook-multiget` or `addressbook-query` request body.
+pub fn parse_report(xml: &[u8]) -> Result<ReportRequest, Error> {
+  if xml.is_empty() {
+    return Err(Error::BadRequest("empty REPORT body".into()));
+  }
+
+  let mut reader = quick_xml::Reader::from_reader(xml);
+  reader.config_mut().trim_text(true);
+
+  let mut kind: Option<ReportKind> = None;
+  let mut props: Vec<PropName> = Vec::new();
+  let mut hrefs: Vec<String> = Vec::new();
+  let mut in_prop = false;
+  let mut in_href = false;
+  let mut buf = Vec::new();
+
+  loop {
+    match reader.read_event_into(&mut buf) {
+      Ok(Event::Start(ref e) | Event::Empty(ref e)) => {
+        let name_buf = e.name();
+        let local = local_name(name_buf.as_ref());
+        match local {
+          b"addressbook-multiget" => {
+            kind = Some(ReportKind::Multiget);
+          }
+          b"addressbook-query" => {
+            kind = Some(ReportKind::Query);
+          }
+          b"prop" => {
+            in_prop = true;
+          }
+          b"href" if !in_prop => {
+            in_href = true;
+          }
+          _ if in_prop => {
+            props.push(parse_prop_name(local));
+          }
+          _ => {}
+        }
+      }
+      Ok(Event::Text(ref e)) => {
+        if in_href {
+          hrefs.push(e.unescape().unwrap_or_default().into_owned());
+          in_href = false;
+        }
+      }
+      Ok(Event::End(ref e)) => {
+        let name_buf = e.name();
+        let local = local_name(name_buf.as_ref());
+        if local == b"prop" {
+          in_prop = false;
+        }
+        if local == b"href" {
+          in_href = false;
+        }
+      }
+      Ok(Event::Eof) => break,
+      Err(e) => return Err(Error::Xml(e.to_string())),
+      _ => {}
+    }
+    buf.clear();
+  }
+
+  let kind = kind.ok_or_else(|| {
+    Error::BadRequest("REPORT body is not a recognized CardDAV report".into())
+  })?;
+
+  // If no props were explicitly requested, treat as allprop.
+  if props.is_empty() {
+    props = vec![PropName::GetETag, PropName::AddressData];
+  }
+
+  Ok(ReportRequest { kind, props, hrefs })
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

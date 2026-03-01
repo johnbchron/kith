@@ -23,7 +23,7 @@ use axum::{
 };
 use bytes::Bytes;
 pub use error::Error;
-use handlers::{delete, get, options, propfind, put};
+use handlers::{delete, get, options, propfind, put, report};
 use kith_core::store::ContactStore;
 use serde::Deserialize;
 
@@ -63,6 +63,7 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   Router::new()
+    .route("/.well-known/carddav", any(well_known_dav_handler))
     .route("/.well-known/dav", any(well_known_dav_handler))
     .route("/dav", any(dav_root_handler::<S>))
     .route("/dav/addressbooks", any(dav_home_handler::<S>))
@@ -176,6 +177,7 @@ where
   if let Some(r) = check_auth(&method, &req, &state) {
     return r;
   }
+  let depth = depth_from_req(&req);
   match method.as_str() {
     "OPTIONS" => options::handler(),
     "PROPFIND" => {
@@ -183,7 +185,7 @@ where
         Ok(b) => b,
         Err(e) => return e,
       };
-      propfind::home_set(&state, &body)
+      propfind::home_set(&state, depth, &body)
         .await
         .into_response_or_err()
     }
@@ -218,6 +220,15 @@ where
         Err(e) => return e,
       };
       propfind::collection(&state, &ab, depth, &body)
+        .await
+        .into_response_or_err()
+    }
+    "REPORT" => {
+      let body = match collect_body(req).await {
+        Ok(b) => b,
+        Err(e) => return e,
+      };
+      report::handler(&state, &ab, &body)
         .await
         .into_response_or_err()
     }

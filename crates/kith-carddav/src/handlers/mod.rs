@@ -3,3 +3,4 @@ pub mod get;
 pub mod options;
 pub mod propfind;
 pub mod put;
+pub mod report;

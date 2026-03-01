@@ -53,6 +53,7 @@ where
 /// PROPFIND /dav/addressbooks/  — home set
 pub async fn home_set<S>(
   state: &AppState<S>,
+  depth: u8,
   body: &[u8],
 ) -> Result<Response, Error>
 where
@@ -68,6 +69,21 @@ where
     Property::ResourceType(vec![ResourceType::Collection]),
     Property::DisplayName("Address Books".to_string()),
   ]);
+
+  // At Depth:1 list the configured addressbook so clients can discover it.
+  if depth >= 1 {
+    let ab = &state.config.addressbook;
+    let ab_href = format!("{base}/dav/addressbooks/{ab}/");
+    ms.response(&ab_href).propstat_ok(&[
+      Property::ResourceType(vec![
+        ResourceType::Collection,
+        ResourceType::Addressbook,
+      ]),
+      Property::DisplayName(ab.clone()),
+      Property::SupportedAddressData,
+      Property::AddressbookDescription(format!("{ab} address book")),
+    ]);
+  }
 
   Ok(multistatus_response(ms.finish()))
 }
