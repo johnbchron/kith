@@ -25,6 +25,10 @@ pub use error::Error;
 use handlers::{delete, get, options, propfind, put, report};
 use kith_core::store::ContactStore;
 use serde::Deserialize;
+use tower_http::trace::{
+  DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer,
+};
+use tracing::Level;
 
 // ─── Configuration
 // ────────────────────────────────────────────────────────────
@@ -101,6 +105,12 @@ where
     .route("/dav/{*path}", any(dav_wildcard_handler))
     .with_state(state)
     .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
+    .layer(
+      TraceLayer::new_for_http()
+        .make_span_with(DefaultMakeSpan::new().include_headers(true))
+        .on_request(DefaultOnRequest::new().level(Level::INFO))
+        .on_response(DefaultOnResponse::new().level(Level::INFO)),
+    )
 }
 
 // ─── Route handlers ──────────────────────────────────────────────────────────
@@ -199,7 +209,7 @@ where
         Ok(s) => s,
         Err(_) => {
           return Error::BadRequest("body is not valid UTF-8".to_string())
-            .into_response()
+            .into_response();
         }
       };
       put::handler(&state, &headers, &uid_vcf, body_str)
@@ -224,9 +234,7 @@ async fn dav_wildcard_handler(method: Method) -> Response {
   }
 }
 
-async fn well_known_dav_handler() -> Redirect {
-  Redirect::permanent("/dav")
-}
+async fn well_known_dav_handler() -> Redirect { Redirect::permanent("/dav") }
 
 // ─── Helper trait ────────────────────────────────────────────────────────────
 
@@ -248,13 +256,18 @@ impl IntoResponseOrErr for Result<Response, Error> {
 
 #[cfg(test)]
 mod tests {
-  use axum::body::Body;
-  use axum::http::{Request, StatusCode, header};
+  use axum::{
+    body::Body,
+    http::{Request, StatusCode, header},
+  };
   use kith_store_sqlite::SqliteStore;
   use tower::ServiceExt as _;
   use uuid::Uuid;
 
-  use super::{test_helpers::{auth_header, make_state}, *};
+  use super::{
+    test_helpers::{auth_header, make_state},
+    *,
+  };
 
   async fn oneshot_raw(
     state: AppState<SqliteStore>,
@@ -626,7 +639,8 @@ mod tests {
   }
 }
 
-// ─── Shared test helpers ──────────────────────────────────────────────────────
+// ─── Shared test helpers
+// ──────────────────────────────────────────────────────
 
 #[cfg(test)]
 pub(crate) mod test_helpers {
