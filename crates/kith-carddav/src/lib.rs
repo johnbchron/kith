@@ -15,9 +15,8 @@ use std::{path::PathBuf, sync::Arc};
 use auth::{AuthConfig, verify_auth};
 use axum::{
   Router,
-  body::Body,
-  extract::{Request, State},
-  http::{Method, StatusCode},
+  extract::{DefaultBodyLimit, Path, State},
+  http::{HeaderMap, Method, StatusCode},
   response::{IntoResponse, Redirect, Response},
   routing::any,
 };
@@ -53,6 +52,33 @@ pub struct AppState<S: ContactStore> {
   pub auth:   Arc<AuthConfig>,
 }
 
+// ─── Helpers
+// ──────────────────────────────────────────────────────────────────
+
+/// Return `Err(401 response)` for any method other than OPTIONS.
+fn require_auth<S>(
+  method: &Method,
+  headers: &HeaderMap,
+  state: &AppState<S>,
+) -> Result<(), Response>
+where
+  S: ContactStore + Clone + Send + Sync + 'static,
+{
+  if method == Method::OPTIONS {
+    return Ok(());
+  }
+  verify_auth(headers, &state.auth).map_err(|e| e.into_response())
+}
+
+/// Parse the `Depth` header as a `u8`, defaulting to `0`.
+fn depth(headers: &HeaderMap) -> u8 {
+  headers
+    .get("depth")
+    .and_then(|v| v.to_str().ok())
+    .and_then(|s| s.parse().ok())
+    .unwrap_or(0)
+}
+
 // ─── Router
 // ───────────────────────────────────────────────────────────────────
 
@@ -72,216 +98,108 @@ where
       "/dav/addressbooks/{ab}/{uid_vcf}",
       any(dav_resource_handler::<S>),
     )
-    .route("/dav/{*path}", any(dav_wildcard_handler::<S>))
+    .route("/dav/{*path}", any(dav_wildcard_handler))
     .with_state(state)
-}
-
-// ─── Dispatch helpers ────────────────────────────────────────────────────────
-
-/// Return `Some(401 response)` if auth is required but fails.
-/// OPTIONS skips auth.
-fn check_auth<S>(
-  method: &Method,
-  req: &Request<Body>,
-  state: &AppState<S>,
-) -> Option<Response>
-where
-  S: ContactStore + Clone + Send + Sync + 'static,
-{
-  if method == Method::OPTIONS {
-    return None;
-  }
-  match verify_auth(req.headers(), &state.auth) {
-    Ok(_) => None,
-    Err(e) => Some(e.into_response()),
-  }
-}
-
-async fn collect_body(req: Request<Body>) -> Result<Bytes, Response> {
-  axum::body::to_bytes(req.into_body(), 8 * 1024 * 1024)
-    .await
-    .map_err(|_| {
-      (StatusCode::PAYLOAD_TOO_LARGE, "request body too large").into_response()
-    })
-}
-
-/// GET handler helper: extract ab and uid_vcf from URI path.
-fn path_segments_2(uri: &axum::http::Uri) -> Option<(String, String)> {
-  let path = uri.path();
-  // Expect: /dav/addressbooks/{ab}/{uid_vcf}
-  let parts: Vec<&str> = path.trim_end_matches('/').splitn(6, '/').collect();
-  if parts.len() >= 5 {
-    Some((parts[3].to_string(), parts[4].to_string()))
-  } else {
-    None
-  }
-}
-
-fn path_segment_ab(uri: &axum::http::Uri) -> Option<String> {
-  let path = uri.path();
-  let parts: Vec<&str> = path.trim_end_matches('/').splitn(5, '/').collect();
-  if parts.len() >= 4 {
-    Some(parts[3].to_string())
-  } else {
-    None
-  }
-}
-
-fn depth_from_req(req: &Request<Body>) -> u8 {
-  req
-    .headers()
-    .get("depth")
-    .and_then(|v| v.to_str().ok())
-    .and_then(|s| s.parse().ok())
-    .unwrap_or(0)
+    .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
 }
 
 // ─── Route handlers ──────────────────────────────────────────────────────────
 
 async fn dav_root_handler<S>(
   State(state): State<AppState<S>>,
-  req: Request<Body>,
+  method: Method,
+  headers: HeaderMap,
+  body: Bytes,
 ) -> Response
 where
   S: ContactStore + Clone + Send + Sync + 'static,
   S::Error: std::error::Error + Send + Sync + 'static,
 {
-  let method = req.method().clone();
-  if let Some(r) = check_auth(&method, &req, &state) {
+  if let Err(r) = require_auth(&method, &headers, &state) {
     return r;
   }
   match method.as_str() {
     "OPTIONS" => options::handler(),
-    "PROPFIND" => {
-      let body = match collect_body(req).await {
-        Ok(b) => b,
-        Err(e) => return e,
-      };
-      propfind::principal(&state, &body)
-        .await
-        .into_response_or_err()
-    }
+    "PROPFIND" => propfind::principal(&state, &body)
+      .await
+      .into_response_or_err(),
     _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
   }
 }
 
 async fn dav_home_handler<S>(
   State(state): State<AppState<S>>,
-  req: Request<Body>,
+  method: Method,
+  headers: HeaderMap,
+  body: Bytes,
 ) -> Response
 where
   S: ContactStore + Clone + Send + Sync + 'static,
   S::Error: std::error::Error + Send + Sync + 'static,
 {
-  let method = req.method().clone();
-  if let Some(r) = check_auth(&method, &req, &state) {
+  if let Err(r) = require_auth(&method, &headers, &state) {
     return r;
   }
-  let depth = depth_from_req(&req);
   match method.as_str() {
     "OPTIONS" => options::handler(),
-    "PROPFIND" => {
-      let body = match collect_body(req).await {
-        Ok(b) => b,
-        Err(e) => return e,
-      };
-      propfind::home_set(&state, depth, &body)
-        .await
-        .into_response_or_err()
-    }
+    "PROPFIND" => propfind::home_set(&state, depth(&headers), &body)
+      .await
+      .into_response_or_err(),
     _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
   }
 }
 
 async fn dav_collection_handler<S>(
   State(state): State<AppState<S>>,
-  req: Request<Body>,
+  Path(ab): Path<String>,
+  method: Method,
+  headers: HeaderMap,
+  body: Bytes,
 ) -> Response
 where
   S: ContactStore + Clone + Send + Sync + 'static,
   S::Error: std::error::Error + Send + Sync + 'static,
 {
-  let method = req.method().clone();
-  if let Some(r) = check_auth(&method, &req, &state) {
+  if let Err(r) = require_auth(&method, &headers, &state) {
     return r;
   }
-  let depth = depth_from_req(&req);
-  let ab = match path_segment_ab(req.uri()) {
-    Some(ab) => ab,
-    None => {
-      return (StatusCode::BAD_REQUEST, "cannot parse path").into_response();
-    }
-  };
   match method.as_str() {
     "OPTIONS" => options::handler(),
-    "PROPFIND" => {
-      let body = match collect_body(req).await {
-        Ok(b) => b,
-        Err(e) => return e,
-      };
-      propfind::collection(&state, &ab, depth, &body)
-        .await
-        .into_response_or_err()
-    }
-    "REPORT" => {
-      let body = match collect_body(req).await {
-        Ok(b) => b,
-        Err(e) => return e,
-      };
-      report::handler(&state, &ab, &body)
-        .await
-        .into_response_or_err()
-    }
+    "PROPFIND" => propfind::collection(&state, &ab, depth(&headers), &body)
+      .await
+      .into_response_or_err(),
+    "REPORT" => report::handler(&state, &ab, &body)
+      .await
+      .into_response_or_err(),
     _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
   }
 }
 
 async fn dav_resource_handler<S>(
   State(state): State<AppState<S>>,
-  req: Request<Body>,
+  Path((ab, uid_vcf)): Path<(String, String)>,
+  method: Method,
+  headers: HeaderMap,
+  body: Bytes,
 ) -> Response
 where
   S: ContactStore + Clone + Send + Sync + 'static,
   S::Error: std::error::Error + Send + Sync + 'static,
 {
-  let method = req.method().clone();
-  if let Some(r) = check_auth(&method, &req, &state) {
+  if let Err(r) = require_auth(&method, &headers, &state) {
     return r;
   }
-  let (ab, uid_vcf) = match path_segments_2(req.uri()) {
-    Some(p) => p,
-    None => {
-      return (StatusCode::BAD_REQUEST, "cannot parse path").into_response();
-    }
-  };
-  let headers = req.headers().clone();
   match method.as_str() {
     "OPTIONS" => options::handler(),
-    "PROPFIND" => {
-      let body = match collect_body(req).await {
-        Ok(b) => b,
-        Err(e) => return e,
-      };
-      propfind::resource(&state, &ab, &uid_vcf, &body)
-        .await
-        .into_response_or_err()
-    }
-    "GET" => get::handler(&state, &method, &uid_vcf)
-      .await
-      .into_response_or_err(),
-    "HEAD" => get::handler(&state, &method, &uid_vcf)
+    "GET" | "HEAD" => get::handler(&state, &method, &uid_vcf)
       .await
       .into_response_or_err(),
     "PUT" => {
-      let body_bytes = match collect_body(req).await {
-        Ok(b) => b,
-        Err(e) => return e,
-      };
-      let body_str = match std::str::from_utf8(&body_bytes) {
+      let body_str = match std::str::from_utf8(&body) {
         Ok(s) => s,
         Err(_) => {
           return Error::BadRequest("body is not valid UTF-8".to_string())
-            .into_response();
+            .into_response()
         }
       };
       put::handler(&state, &headers, &uid_vcf, body_str)
@@ -291,19 +209,15 @@ where
     "DELETE" => delete::handler(&state, &uid_vcf)
       .await
       .into_response_or_err(),
+    "PROPFIND" => propfind::resource(&state, &ab, &uid_vcf, &body)
+      .await
+      .into_response_or_err(),
     _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
   }
 }
 
-async fn dav_wildcard_handler<S>(
-  State(_state): State<AppState<S>>,
-  req: Request<Body>,
-) -> Response
-where
-  S: ContactStore + Clone + Send + Sync + 'static,
-  S::Error: std::error::Error + Send + Sync + 'static,
-{
-  if req.method() == Method::OPTIONS {
+async fn dav_wildcard_handler(method: Method) -> Response {
+  if method == Method::OPTIONS {
     options::handler()
   } else {
     StatusCode::NOT_FOUND.into_response()
@@ -337,6 +251,7 @@ mod tests {
   use std::sync::Arc;
 
   use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
+  use axum::body::Body;
   use axum::http::{Request, StatusCode, header};
   use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
   use kith_store_sqlite::SqliteStore;
