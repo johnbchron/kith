@@ -1,13 +1,10 @@
 //! REPORT handlers for `addressbook-multiget` and `addressbook-query`.
 
-use axum::{
-  body::Body,
-  http::header,
-  response::Response,
-};
+use axum::response::Response;
 use kith_core::{store::ContactStore, subject::SubjectKind};
 use uuid::Uuid;
 
+use super::multistatus_response;
 use crate::{
   AppState,
   error::Error,
@@ -17,16 +14,6 @@ use crate::{
     parse_report,
   },
 };
-
-const CONTENT_TYPE_MULTISTATUS: &str = "application/xml; charset=utf-8";
-
-fn multistatus_response(body: Vec<u8>) -> Response {
-  Response::builder()
-    .status(207)
-    .header(header::CONTENT_TYPE, CONTENT_TYPE_MULTISTATUS)
-    .body(Body::from(body))
-    .unwrap()
-}
 
 pub async fn handler<S>(
   state: &AppState<S>,

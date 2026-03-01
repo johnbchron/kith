@@ -1,29 +1,19 @@
 //! PROPFIND handlers for principal, home-set, collection, and resource.
 
 use axum::{
-  body::Body,
-  http::{StatusCode, header},
+  http::StatusCode,
   response::{IntoResponse, Response},
 };
 use kith_core::{store::ContactStore, subject::SubjectKind};
 use uuid::Uuid;
 
+use super::multistatus_response;
 use crate::{
   AppState,
   error::Error,
   etag::compute_etag,
   xml::{MultistatusBuilder, Property, ResourceType, parse_propfind},
 };
-
-const CONTENT_TYPE_MULTISTATUS: &str = "application/xml; charset=utf-8";
-
-fn multistatus_response(body: Vec<u8>) -> Response {
-  Response::builder()
-    .status(207)
-    .header(header::CONTENT_TYPE, CONTENT_TYPE_MULTISTATUS)
-    .body(Body::from(body))
-    .unwrap()
-}
 
 /// PROPFIND /dav/  — principal
 pub async fn principal<S>(
