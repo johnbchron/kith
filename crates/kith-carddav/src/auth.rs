@@ -76,109 +76,23 @@ where
 mod tests {
   use std::{path::PathBuf, sync::Arc};
 
+  use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
   use axum::http::{Request, header};
+  use kith_store_sqlite::SqliteStore;
+  use rand_core::OsRng;
 
   use super::*;
   use crate::{AppState, ServerConfig};
 
-  // A minimal no-op store for testing auth only.
-  #[derive(Clone)]
-  struct NoopStore;
-
-  impl kith_core::store::ContactStore for NoopStore {
-    type Error = std::convert::Infallible;
-
-    async fn add_subject(
-      &self,
-      _: kith_core::subject::SubjectKind,
-    ) -> Result<kith_core::subject::Subject, Self::Error> {
-      unimplemented!()
-    }
-
-    async fn add_subject_with_id(
-      &self,
-      _: uuid::Uuid,
-      _: kith_core::subject::SubjectKind,
-    ) -> Result<kith_core::subject::Subject, Self::Error> {
-      unimplemented!()
-    }
-
-    async fn get_subject(
-      &self,
-      _: uuid::Uuid,
-    ) -> Result<Option<kith_core::subject::Subject>, Self::Error> {
-      unimplemented!()
-    }
-
-    async fn list_subjects(
-      &self,
-      _: Option<kith_core::subject::SubjectKind>,
-    ) -> Result<Vec<kith_core::subject::Subject>, Self::Error> {
-      unimplemented!()
-    }
-
-    async fn record_fact(
-      &self,
-      _: kith_core::fact::NewFact,
-    ) -> Result<kith_core::fact::Fact, Self::Error> {
-      unimplemented!()
-    }
-
-    async fn supersede(
-      &self,
-      _: uuid::Uuid,
-      _: kith_core::fact::NewFact,
-    ) -> Result<
-      (kith_core::lifecycle::Supersession, kith_core::fact::Fact),
-      Self::Error,
-    > {
-      unimplemented!()
-    }
-
-    async fn retract(
-      &self,
-      _: uuid::Uuid,
-      _: Option<String>,
-    ) -> Result<kith_core::lifecycle::Retraction, Self::Error> {
-      unimplemented!()
-    }
-
-    async fn get_facts(
-      &self,
-      _: uuid::Uuid,
-      _: Option<chrono::DateTime<chrono::Utc>>,
-      _: bool,
-    ) -> Result<Vec<kith_core::lifecycle::ResolvedFact>, Self::Error> {
-      unimplemented!()
-    }
-
-    async fn materialize(
-      &self,
-      _: uuid::Uuid,
-      _: Option<chrono::DateTime<chrono::Utc>>,
-    ) -> Result<Option<kith_core::lifecycle::ContactView>, Self::Error> {
-      unimplemented!()
-    }
-
-    async fn search(
-      &self,
-      _: &kith_core::store::FactQuery,
-    ) -> Result<Vec<kith_core::subject::Subject>, Self::Error> {
-      unimplemented!()
-    }
-  }
-
-  fn make_state(password: &str) -> AppState<NoopStore> {
-    use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
-    use rand_core::OsRng;
+  async fn make_state(password: &str) -> AppState<SqliteStore> {
+    let store = SqliteStore::open_in_memory().await.unwrap();
     let salt = SaltString::generate(&mut OsRng);
     let hash = Argon2::default()
       .hash_password(password.as_bytes(), &salt)
       .unwrap()
       .to_string();
-
     AppState {
-      store:  Arc::new(NoopStore),
+      store:  Arc::new(store),
       config: Arc::new(ServerConfig {
         host:               "127.0.0.1".to_string(),
         port:               5232,
@@ -197,7 +111,7 @@ mod tests {
 
   async fn extract(
     req: Request<axum::body::Body>,
-    state: &AppState<NoopStore>,
+    state: &AppState<SqliteStore>,
   ) -> Result<Authenticated, Error> {
     let (mut parts, _) = req.into_parts();
     Authenticated::from_request_parts(&mut parts, state).await
@@ -210,7 +124,7 @@ mod tests {
 
   #[tokio::test]
   async fn correct_credentials() {
-    let state = make_state("secret");
+    let state = make_state("secret").await;
     let req = Request::builder()
       .header(header::AUTHORIZATION, basic("user", "secret"))
       .body(axum::body::Body::empty())
@@ -220,7 +134,7 @@ mod tests {
 
   #[tokio::test]
   async fn wrong_password() {
-    let state = make_state("secret");
+    let state = make_state("secret").await;
     let req = Request::builder()
       .header(header::AUTHORIZATION, basic("user", "wrong"))
       .body(axum::body::Body::empty())
@@ -233,7 +147,7 @@ mod tests {
 
   #[tokio::test]
   async fn missing_header() {
-    let state = make_state("secret");
+    let state = make_state("secret").await;
     let req = Request::builder().body(axum::body::Body::empty()).unwrap();
     assert!(matches!(
       extract(req, &state).await,
@@ -243,7 +157,7 @@ mod tests {
 
   #[tokio::test]
   async fn invalid_base64() {
-    let state = make_state("secret");
+    let state = make_state("secret").await;
     let req = Request::builder()
       .header(header::AUTHORIZATION, "Basic !!!not-base64!!!")
       .body(axum::body::Body::empty())
