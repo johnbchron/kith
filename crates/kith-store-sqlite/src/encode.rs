@@ -8,7 +8,7 @@
 use chrono::{DateTime, Utc};
 use kith_core::{
   fact::{Confidence, EffectiveDate, Fact, FactValue, RecordingContext},
-  lifecycle::{FactStatus, ResolvedFact, Retraction, Supersession},
+  lifecycle::{FactStatus, ResolvedFact},
   subject::{Subject, SubjectKind},
 };
 use uuid::Uuid;
@@ -199,46 +199,6 @@ impl RawSubject {
       subject_id: decode_uuid(&self.subject_id)?,
       created_at: decode_dt(&self.created_at)?,
       kind:       decode_subject_kind(&self.kind)?,
-    })
-  }
-}
-
-/// Raw strings read from a `supersessions` row.
-#[allow(dead_code)]
-pub struct RawSupersession {
-  pub supersession_id: String,
-  pub old_fact_id:     String,
-  pub new_fact_id:     String,
-  pub recorded_at:     String,
-}
-
-impl RawSupersession {
-  pub fn into_supersession(self) -> Result<Supersession> {
-    Ok(Supersession {
-      supersession_id: decode_uuid(&self.supersession_id)?,
-      old_fact_id:     decode_uuid(&self.old_fact_id)?,
-      new_fact_id:     decode_uuid(&self.new_fact_id)?,
-      recorded_at:     decode_dt(&self.recorded_at)?,
-    })
-  }
-}
-
-/// Raw strings read from a `retractions` row.
-#[allow(dead_code)]
-pub struct RawRetraction {
-  pub retraction_id: String,
-  pub fact_id:       String,
-  pub reason:        Option<String>,
-  pub recorded_at:   String,
-}
-
-impl RawRetraction {
-  pub fn into_retraction(self) -> Result<Retraction> {
-    Ok(Retraction {
-      retraction_id: decode_uuid(&self.retraction_id)?,
-      fact_id:       decode_uuid(&self.fact_id)?,
-      reason:        self.reason,
-      recorded_at:   decode_dt(&self.recorded_at)?,
     })
   }
 }
