@@ -248,48 +248,13 @@ impl IntoResponseOrErr for Result<Response, Error> {
 
 #[cfg(test)]
 mod tests {
-  use std::sync::Arc;
-
-  use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
   use axum::body::Body;
   use axum::http::{Request, StatusCode, header};
-  use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
   use kith_store_sqlite::SqliteStore;
-  use rand_core::OsRng;
   use tower::ServiceExt as _;
   use uuid::Uuid;
 
-  use super::*;
-
-  async fn make_state(password: &str) -> AppState<SqliteStore> {
-    let store = SqliteStore::open_in_memory().await.unwrap();
-    let salt = SaltString::generate(&mut OsRng);
-    let hash = Argon2::default()
-      .hash_password(password.as_bytes(), &salt)
-      .unwrap()
-      .to_string();
-
-    AppState {
-      store:  Arc::new(store),
-      config: Arc::new(ServerConfig {
-        host:               "127.0.0.1".to_string(),
-        port:               5232,
-        base_url:           "http://localhost:5232".to_string(),
-        addressbook:        "personal".to_string(),
-        store_path:         PathBuf::from(":memory:"),
-        auth_username:      "user".to_string(),
-        auth_password_hash: hash.clone(),
-      }),
-      auth:   Arc::new(AuthConfig {
-        username:      "user".to_string(),
-        password_hash: hash,
-      }),
-    }
-  }
-
-  fn auth_header(user: &str, pass: &str) -> String {
-    format!("Basic {}", B64.encode(format!("{user}:{pass}")))
-  }
+  use super::{test_helpers::{auth_header, make_state}, *};
 
   async fn oneshot_raw(
     state: AppState<SqliteStore>,
@@ -658,5 +623,48 @@ mod tests {
     .await;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     assert!(resp.headers().contains_key(header::WWW_AUTHENTICATE));
+  }
+}
+
+// ─── Shared test helpers ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+pub(crate) mod test_helpers {
+  use std::{path::PathBuf, sync::Arc};
+
+  use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
+  use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+  use kith_store_sqlite::SqliteStore;
+  use rand_core::OsRng;
+
+  use crate::{AppState, ServerConfig, auth::AuthConfig};
+
+  pub(crate) async fn make_state(password: &str) -> AppState<SqliteStore> {
+    let store = SqliteStore::open_in_memory().await.unwrap();
+    let salt = SaltString::generate(&mut OsRng);
+    let hash = Argon2::default()
+      .hash_password(password.as_bytes(), &salt)
+      .unwrap()
+      .to_string();
+    AppState {
+      store:  Arc::new(store),
+      config: Arc::new(ServerConfig {
+        host:               "127.0.0.1".to_string(),
+        port:               5232,
+        base_url:           "http://localhost:5232".to_string(),
+        addressbook:        "personal".to_string(),
+        store_path:         PathBuf::from(":memory:"),
+        auth_username:      "user".to_string(),
+        auth_password_hash: hash.clone(),
+      }),
+      auth:   Arc::new(AuthConfig {
+        username:      "user".to_string(),
+        password_hash: hash,
+      }),
+    }
+  }
+
+  pub(crate) fn auth_header(user: &str, pass: &str) -> String {
+    format!("Basic {}", B64.encode(format!("{user}:{pass}")))
   }
 }

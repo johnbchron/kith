@@ -8,8 +8,12 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// The kind of entity a subject represents.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+  Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize,
+  strum::Display, strum::EnumString,
+)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum SubjectKind {
   Person,
   Organization,

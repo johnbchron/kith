@@ -95,55 +95,13 @@ pub fn serialize_v3(view: &ContactView) -> Result<String> {
 
 #[cfg(test)]
 mod roundtrip_tests {
-  use chrono::{TimeZone, Utc};
-  use kith_core::{
-    fact::{
-      AddressValue, Confidence, ContactLabel, EmailValue, FactValue, NameValue,
-      OrgMembershipValue, PhoneKind, PhoneValue, RecordingContext,
-      RelationshipValue, SocialValue,
-    },
-    lifecycle::{ContactView, FactStatus, ResolvedFact},
-    subject::{Subject, SubjectKind},
+  use kith_core::fact::{
+    AddressValue, ContactLabel, EmailValue, FactValue, NameValue,
+    OrgMembershipValue, PhoneKind, PhoneValue, RelationshipValue, SocialValue,
   };
   use uuid::Uuid;
 
-  use super::*;
-
-  fn make_view(facts: Vec<FactValue>) -> ContactView {
-    let subject_id = Uuid::new_v4();
-    let as_of = Utc.with_ymd_and_hms(2024, 6, 1, 0, 0, 0).unwrap();
-    let subject = Subject {
-      subject_id,
-      created_at: as_of,
-      kind: SubjectKind::Person,
-    };
-    let active_facts = facts
-      .into_iter()
-      .map(|v| {
-        let fact = kith_core::fact::Fact {
-          fact_id: Uuid::new_v4(),
-          subject_id,
-          value: v,
-          recorded_at: as_of,
-          effective_at: None,
-          effective_until: None,
-          source: None,
-          confidence: Confidence::Certain,
-          recording_context: RecordingContext::Manual,
-          tags: vec![],
-        };
-        ResolvedFact {
-          fact,
-          status: FactStatus::Active,
-        }
-      })
-      .collect();
-    ContactView {
-      subject,
-      as_of,
-      active_facts,
-    }
-  }
+  use super::{test_helpers::make_view, *};
 
   fn find_fact<F>(parsed: &ParsedVcard, predicate: F) -> Option<&FactValue>
   where
@@ -282,5 +240,55 @@ mod roundtrip_tests {
     };
     assert_eq!(r.relation, "colleague");
     assert_eq!(r.other_id, Some(other_id));
+  }
+}
+
+// ─── Shared test helpers ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+pub(crate) mod test_helpers {
+  use chrono::{TimeZone, Utc};
+  use kith_core::{
+    fact::{Confidence, Fact, FactValue, RecordingContext},
+    lifecycle::{ContactView, FactStatus, ResolvedFact},
+    subject::{Subject, SubjectKind},
+  };
+  use uuid::Uuid;
+
+  /// Build a [`ContactView`] from a list of fact values for use in tests.
+  pub(crate) fn make_view(facts: Vec<FactValue>) -> ContactView {
+    let subject_id = Uuid::new_v4();
+    let as_of = Utc.with_ymd_and_hms(2024, 6, 1, 0, 0, 0).unwrap();
+    let subject = Subject {
+      subject_id,
+      created_at: as_of,
+      kind: SubjectKind::Person,
+    };
+    let active_facts = facts
+      .into_iter()
+      .map(|v| {
+        let fact = Fact {
+          fact_id: Uuid::new_v4(),
+          subject_id,
+          value: v,
+          recorded_at: as_of,
+          effective_at: None,
+          effective_until: None,
+          source: None,
+          confidence: Confidence::Certain,
+          recording_context: RecordingContext::Manual,
+          tags: vec![],
+        };
+        ResolvedFact {
+          fact,
+          status: FactStatus::Active,
+        }
+      })
+      .collect();
+    ContactView {
+      subject,
+      as_of,
+      active_facts,
+    }
   }
 }

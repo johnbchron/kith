@@ -31,8 +31,10 @@ pub enum EffectiveDate {
 /// How certain the author is about this fact.
 #[derive(
   Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
+  strum::Display, strum::EnumString,
 )]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum Confidence {
   #[default]
   Certain,
@@ -224,8 +226,9 @@ pub struct MeetingValue {
 
 /// The typed payload of a fact. The variant name serves as the `fact_type`
 /// discriminant stored in the database.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, strum::IntoStaticStr)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum FactValue {
   // ── Identity ────────────────────────────────────────────────────────────
   Name(NameValue),
@@ -262,30 +265,11 @@ pub enum FactValue {
 
 impl FactValue {
   /// The discriminant string stored in the `fact_type` column.
-  /// Must match the `rename_all = "snake_case"` serde tags above.
-  pub fn discriminant(&self) -> &'static str {
-    match self {
-      Self::Name(_) => "name",
-      Self::Alias(_) => "alias",
-      Self::Photo(_) => "photo",
-      Self::Birthday(_) => "birthday",
-      Self::Anniversary(_) => "anniversary",
-      Self::Gender(_) => "gender",
-      Self::Email(_) => "email",
-      Self::Phone(_) => "phone",
-      Self::Address(_) => "address",
-      Self::Url(_) => "url",
-      Self::Im(_) => "im",
-      Self::Social(_) => "social",
-      Self::Relationship(_) => "relationship",
-      Self::OrgMembership(_) => "org_membership",
-      Self::GroupMembership(_) => "group_membership",
-      Self::Note(_) => "note",
-      Self::Meeting(_) => "meeting",
-      Self::Introduction(_) => "introduction",
-      Self::Custom { .. } => "custom",
-    }
-  }
+  ///
+  /// Derived via [`strum::IntoStaticStr`] — guaranteed to match the
+  /// `rename_all = "snake_case"` serde tag; adding a new variant without
+  /// updating a hand-written match is no longer possible.
+  pub fn discriminant(&self) -> &'static str { self.into() }
 
   /// Serialise the inner payload (without the type tag) for the `value_json`
   /// database column.

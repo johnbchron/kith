@@ -1024,8 +1024,8 @@ mod tests {
 
   #[test]
   fn impp_xmpp_uri() {
-    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nIMPP:xmpp:alice@jabber.org\r\\
-                 nEND:VCARD\r\n";
+    #[rustfmt::skip]
+    let input = "BEGIN:VCARD\r\nVERSION:4.0\r\nIMPP:xmpp:alice@jabber.org\r\nEND:VCARD\r\n";
     let card = parse_one(input, "test").unwrap();
     let FactValue::Im(im) = first_fact(&card) else {
       panic!("expected Im")

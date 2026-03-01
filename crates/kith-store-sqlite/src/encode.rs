@@ -32,26 +32,6 @@ pub fn decode_dt(s: &str) -> Result<DateTime<Utc>> {
     .map_err(|e| Error::DateParse(e.to_string()))
 }
 
-// ─── SubjectKind
-// ──────────────────────────────────────────────────────────────
-
-pub fn encode_subject_kind(k: SubjectKind) -> &'static str {
-  match k {
-    SubjectKind::Person => "person",
-    SubjectKind::Organization => "organization",
-    SubjectKind::Group => "group",
-  }
-}
-
-pub fn decode_subject_kind(s: &str) -> Result<SubjectKind> {
-  match s {
-    "person" => Ok(SubjectKind::Person),
-    "organization" => Ok(SubjectKind::Organization),
-    "group" => Ok(SubjectKind::Group),
-    other => Err(Error::DateParse(format!("unknown subject kind: {other:?}"))),
-  }
-}
-
 // ─── EffectiveDate
 // ────────────────────────────────────────────────────────────
 
@@ -61,26 +41,6 @@ pub fn encode_effective_date(d: &EffectiveDate) -> Result<String> {
 
 pub fn decode_effective_date(s: &str) -> Result<EffectiveDate> {
   Ok(serde_json::from_str(s)?)
-}
-
-// ─── Confidence
-// ───────────────────────────────────────────────────────────────
-
-pub fn encode_confidence(c: Confidence) -> &'static str {
-  match c {
-    Confidence::Certain => "certain",
-    Confidence::Probable => "probable",
-    Confidence::Rumored => "rumored",
-  }
-}
-
-pub fn decode_confidence(s: &str) -> Result<Confidence> {
-  match s {
-    "certain" => Ok(Confidence::Certain),
-    "probable" => Ok(Confidence::Probable),
-    "rumored" => Ok(Confidence::Rumored),
-    other => Err(Error::DateParse(format!("unknown confidence: {other:?}"))),
-  }
 }
 
 // ─── RecordingContext
@@ -149,7 +109,10 @@ impl RawResolvedFact {
       .map(decode_effective_date)
       .transpose()?;
 
-    let confidence = decode_confidence(&self.confidence)?;
+    let confidence = self
+      .confidence
+      .parse::<Confidence>()
+      .map_err(|e| Error::DateParse(e.to_string()))?;
     let recording_context = decode_recording_context(&self.recording_context)?;
     let tags = decode_tags(&self.tags)?;
 
@@ -198,7 +161,10 @@ impl RawSubject {
     Ok(Subject {
       subject_id: decode_uuid(&self.subject_id)?,
       created_at: decode_dt(&self.created_at)?,
-      kind:       decode_subject_kind(&self.kind)?,
+      kind:       self
+        .kind
+        .parse::<SubjectKind>()
+        .map_err(|e| Error::DateParse(e.to_string()))?,
     })
   }
 }

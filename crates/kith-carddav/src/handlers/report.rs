@@ -186,55 +186,16 @@ mod tests {
   }
 }
 
-// Integration tests reusing the test helpers from the parent module live in
-// the lib integration tests (lib.rs #[cfg(test)] mod tests).
-
 /// Verify that an `addressbook-multiget` report with a bad status (missing machine)
 /// returns a 404 response element, not a 500.
 #[cfg(test)]
 mod integration {
-  use std::sync::Arc;
-
-  use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
-  use axum::http::{Request, header};
   use axum::body::Body;
-  use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
-  use kith_store_sqlite::SqliteStore;
-  use rand_core::OsRng;
+  use axum::http::{Request, header};
   use tower::ServiceExt as _;
   use uuid::Uuid;
 
-  use crate::{AppState, ServerConfig, auth::AuthConfig, router};
-  use std::path::PathBuf;
-
-  async fn make_state(password: &str) -> AppState<SqliteStore> {
-    let store = SqliteStore::open_in_memory().await.unwrap();
-    let salt = SaltString::generate(&mut OsRng);
-    let hash = Argon2::default()
-      .hash_password(password.as_bytes(), &salt)
-      .unwrap()
-      .to_string();
-    AppState {
-      store:  Arc::new(store),
-      config: Arc::new(ServerConfig {
-        host:               "127.0.0.1".to_string(),
-        port:               5232,
-        base_url:           "http://localhost:5232".to_string(),
-        addressbook:        "personal".to_string(),
-        store_path:         PathBuf::from(":memory:"),
-        auth_username:      "user".to_string(),
-        auth_password_hash: hash.clone(),
-      }),
-      auth:   Arc::new(AuthConfig {
-        username:      "user".to_string(),
-        password_hash: hash,
-      }),
-    }
-  }
-
-  fn auth_header(user: &str, pass: &str) -> String {
-    format!("Basic {}", B64.encode(format!("{user}:{pass}")))
-  }
+  use crate::{router, test_helpers::{auth_header, make_state}};
 
   #[tokio::test]
   async fn multiget_nonexistent_returns_207_with_404_response() {

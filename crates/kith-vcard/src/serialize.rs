@@ -467,54 +467,14 @@ pub fn serialize_v3(view: &ContactView) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-  use chrono::{NaiveDate, TimeZone, Utc};
-  use kith_core::{
-    fact::{
-      AddressValue, ContactLabel, EmailValue, FactValue, NameValue,
-      OrgMembershipValue, PhoneKind, PhoneValue, RecordingContext, SocialValue,
-    },
-    lifecycle::{ContactView, FactStatus, ResolvedFact},
-    subject::{Subject, SubjectKind},
+  use chrono::NaiveDate;
+  use kith_core::fact::{
+    AddressValue, ContactLabel, EmailValue, FactValue, NameValue,
+    OrgMembershipValue, PhoneKind, PhoneValue, SocialValue,
   };
-  use uuid::Uuid;
 
+  use crate::test_helpers::make_view;
   use super::*;
-
-  fn make_view(facts: Vec<FactValue>) -> ContactView {
-    let subject_id = Uuid::new_v4();
-    let subject = Subject {
-      subject_id,
-      created_at: Utc::now(),
-      kind: SubjectKind::Person,
-    };
-    let as_of = Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap();
-    let active_facts = facts
-      .into_iter()
-      .map(|v| {
-        let fact = kith_core::fact::Fact {
-          fact_id: Uuid::new_v4(),
-          subject_id,
-          value: v,
-          recorded_at: as_of,
-          effective_at: None,
-          effective_until: None,
-          source: None,
-          confidence: kith_core::fact::Confidence::Certain,
-          recording_context: RecordingContext::Manual,
-          tags: vec![],
-        };
-        ResolvedFact {
-          fact,
-          status: FactStatus::Active,
-        }
-      })
-      .collect();
-    ContactView {
-      subject,
-      as_of,
-      active_facts,
-    }
-  }
 
   // ── Envelope
   // ────────────────────────────────────────────────────────────────
