@@ -13,7 +13,7 @@ axum = { version = "0.8", features = [ "macros" ] }
 base64 = "0.22"
 bytes = "1"
 chrono = { version = "0.4", features = [ "serde" ] }
-clap = { version = "4", features = [ "derive" ] }
+clap = { version = "4", features = [ "derive", "env" ] }
 config = "0.14"
 hex = "0.4"
 quick-xml = { version = "0.37", features = [ "serialize" ] }
