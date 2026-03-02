@@ -63,8 +63,9 @@ pub fn diff(
     std::collections::HashSet::new();
 
   for incoming_fact in incoming {
-    // Try to find a matching active fact by type + key fields.
-    let match_result = find_match(&incoming_fact.value, &active);
+    // Try to find a matching active fact by type + key fields, skipping any
+    // facts already consumed by a previous incoming fact.
+    let match_result = find_match(&incoming_fact.value, &active, &matched_active);
 
     match match_result {
       Some((old_id, old_value)) => {
@@ -98,12 +99,20 @@ pub fn diff(
 
 /// Find a matching active fact for the given incoming value.
 ///
+/// Skips any fact whose ID is already in `already_matched`, so that two
+/// incoming facts with the same key (e.g. two emails at the same address)
+/// each consume a distinct active fact rather than both matching the same one.
+///
 /// Returns `(fact_id, &FactValue)` if a match is found.
 fn find_match<'a>(
   incoming: &FactValue,
   active: &[&'a kith_core::lifecycle::ResolvedFact],
+  already_matched: &std::collections::HashSet<Uuid>,
 ) -> Option<(Uuid, &'a FactValue)> {
   for rf in active {
+    if already_matched.contains(&rf.fact.fact_id) {
+      continue;
+    }
     if fact_matches(incoming, &rf.fact.value) {
       return Some((rf.fact.fact_id, &rf.fact.value));
     }

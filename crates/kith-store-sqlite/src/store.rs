@@ -510,6 +510,41 @@ impl ContactStore for SqliteStore {
     }))
   }
 
+  async fn collection_ctag(
+    &self,
+  ) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
+    let raw: Option<Option<String>> = self
+      .conn
+      .call(|conn| {
+        Ok(
+          conn
+            .query_row(
+              "SELECT MAX(ts) FROM (
+                 SELECT f.recorded_at AS ts
+                 FROM facts f
+                 JOIN subjects s ON s.subject_id = f.subject_id
+                 WHERE s.kind = 'person'
+                 UNION ALL
+                 SELECT r.recorded_at AS ts
+                 FROM retractions r
+                 JOIN facts f ON f.fact_id = r.fact_id
+                 JOIN subjects s ON s.subject_id = f.subject_id
+                 WHERE s.kind = 'person'
+               )",
+              [],
+              |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?,
+        )
+      })
+      .await?;
+
+    raw
+      .flatten()
+      .map(|s| crate::encode::decode_dt(&s))
+      .transpose()
+  }
+
   async fn search(&self, query: &FactQuery) -> Result<Vec<Subject>> {
     // Phase 1: SQL LIKE over value_json + optional subject-kind filter.
     let text_pattern = query.text.as_deref().map(|t| format!("%{t}%"));

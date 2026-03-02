@@ -17,6 +17,7 @@ use crate::error::Error;
 
 pub const NS_DAV: &str = "DAV:";
 pub const NS_CARDDAV: &str = "urn:ietf:params:xml:ns:carddav";
+pub const NS_CALSERVER: &str = "http://calendarserver.org/ns/";
 
 // ─── PROPFIND request ────────────────────────────────────────────────────────
 
@@ -141,6 +142,8 @@ pub enum Property {
   AddressbookDescription(String),
   SupportedAddressData,
   AddressData(String),
+  /// Apple CalendarServer `getctag` — opaque change token for the collection.
+  GetCTag(String),
 }
 
 pub struct MultistatusBuilder {
@@ -169,6 +172,7 @@ impl MultistatusBuilder {
     let mut ms = BytesStart::new("D:multistatus");
     ms.push_attribute(("xmlns:D", NS_DAV));
     ms.push_attribute(("xmlns:card", NS_CARDDAV));
+    ms.push_attribute(("xmlns:CS", NS_CALSERVER));
     writer.write_event(Event::Start(ms)).unwrap();
 
     Self { writer }
@@ -338,6 +342,7 @@ fn write_property(w: &mut Writer<Cursor<Vec<u8>>>, prop: &Property) {
       write_end(w, "card:supported-address-data");
     }
     Property::AddressData(data) => write_text_elem(w, "card:address-data", data),
+    Property::GetCTag(ctag) => write_text_elem(w, "CS:getctag", ctag),
   }
 }
 

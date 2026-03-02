@@ -33,6 +33,12 @@ where
     .await
     .map_err(|e| Error::Store(Box::new(e)))?;
 
+  // A subject with no active facts is invisible from a CardDAV perspective
+  // (GET returns 404). DELETE should be consistent with that view.
+  if facts.is_empty() {
+    return Err(Error::NotFound);
+  }
+
   for rf in facts {
     state
       .store

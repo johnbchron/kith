@@ -30,6 +30,11 @@ where
     .and_then(|v| v.to_str().ok())
     .map(|s| s.to_string());
 
+  let if_none_match = headers
+    .get(header::IF_NONE_MATCH)
+    .and_then(|v| v.to_str().ok())
+    .map(|s| s.to_string());
+
   let existing_subject = state
     .store
     .get_subject(uid)
@@ -47,16 +52,32 @@ where
       .add_subject_with_id(uid, SubjectKind::Person)
       .await
       .map_err(|e| Error::Store(Box::new(e)))?;
-  } else if let Some(ref etag_header) = if_match {
-    let view = state
-      .store
-      .materialize(uid, None)
-      .await
-      .map_err(|e| Error::Store(Box::new(e)))?
-      .ok_or(Error::NotFound)?;
-    let current_etag = compute_etag(&view);
-    if strip_etag_quotes(&current_etag) != strip_etag_quotes(etag_header) {
-      return Err(Error::PreconditionFailed);
+  } else {
+    // If-None-Match: * means "fail if the resource exists and is visible".
+    if if_none_match.as_deref() == Some("*") {
+      let visible = state
+        .store
+        .materialize(uid, None)
+        .await
+        .map_err(|e| Error::Store(Box::new(e)))?
+        .map(|v| !v.active_facts.is_empty())
+        .unwrap_or(false);
+      if visible {
+        return Err(Error::PreconditionFailed);
+      }
+    }
+
+    if let Some(ref etag_header) = if_match {
+      let view = state
+        .store
+        .materialize(uid, None)
+        .await
+        .map_err(|e| Error::Store(Box::new(e)))?
+        .ok_or(Error::NotFound)?;
+      let current_etag = compute_etag(&view);
+      if strip_etag_quotes(&current_etag) != strip_etag_quotes(etag_header) {
+        return Err(Error::PreconditionFailed);
+      }
     }
   }
 

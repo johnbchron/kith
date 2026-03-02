@@ -99,6 +99,14 @@ where
   let base = &state.config.base_url;
   let coll_href = format!("{base}/dav/addressbooks/{ab}/");
 
+  let ctag = state
+    .store
+    .collection_ctag()
+    .await
+    .map_err(|e| Error::Store(Box::new(e)))?
+    .map(|dt| dt.to_rfc3339())
+    .unwrap_or_else(|| "empty".to_string());
+
   let mut ms = MultistatusBuilder::new();
   ms.response(&coll_href).propstat_ok(&[
     Property::ResourceType(vec![
@@ -108,6 +116,7 @@ where
     Property::DisplayName(ab.to_string()),
     Property::SupportedAddressData,
     Property::AddressbookDescription(format!("{ab} address book")),
+    Property::GetCTag(ctag),
   ]);
 
   if depth >= 1 {

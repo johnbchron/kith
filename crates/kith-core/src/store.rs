@@ -145,4 +145,13 @@ pub trait ContactStore: Send + Sync {
     &'a self,
     query: &'a FactQuery,
   ) -> impl Future<Output = Result<Vec<Subject>, Self::Error>> + Send + 'a;
+
+  /// Return the most recent mutation timestamp across all Person-kind facts and
+  /// their retractions, or `None` if the addressbook is empty.
+  ///
+  /// Used to derive a `getctag` value for collection-level change detection.
+  /// Clients compare the opaque token; when it changes, they re-sync.
+  fn collection_ctag(
+    &self,
+  ) -> impl Future<Output = Result<Option<DateTime<Utc>>, Self::Error>> + Send + '_;
 }

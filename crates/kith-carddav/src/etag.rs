@@ -10,14 +10,25 @@ use uuid::Uuid;
 
 /// Compute an ETag for the given `ContactView`.
 ///
-/// Stable: same active facts in any order → same ETag.
+/// Stable: same subject + same active facts in any order → same ETag.
+/// The subject_id is always included so that two contacts with identical (or
+/// zero) active facts still produce distinct ETags.
 pub fn compute_etag(view: &ContactView) -> String {
   let mut pairs: Vec<(Uuid, DateTime<Utc>)> = view
     .active_facts
     .iter()
     .map(|rf| (rf.fact.fact_id, rf.fact.recorded_at))
     .collect();
-  compute_etag_from_pairs(&mut pairs)
+  pairs.sort_by_key(|(id, _)| *id);
+
+  let mut hasher = Sha256::new();
+  hasher.update(view.subject.subject_id.as_bytes());
+  for (id, ts) in &pairs {
+    hasher.update(id.as_bytes());
+    hasher.update(ts.timestamp_micros().to_le_bytes());
+  }
+  let hash = hasher.finalize();
+  format!("\"{}\"", hex::encode(hash))
 }
 
 /// Compute an ETag directly from (fact_id, recorded_at) pairs.
