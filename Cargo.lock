@@ -783,6 +783,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "kith-api"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "kith-core",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "kith-carddav"
 version = "0.1.0"
 dependencies = [
@@ -795,6 +809,7 @@ dependencies = [
  "clap",
  "config",
  "hex",
+ "kith-api",
  "kith-core",
  "kith-store-sqlite",
  "kith-vcard",

@@ -1,0 +1,14 @@
+[package]
+edition.workspace = true
+name = "kith-api"
+version.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+chrono = { workspace = true }
+kith-core = { path = "../kith-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }

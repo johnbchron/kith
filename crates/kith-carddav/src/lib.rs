@@ -24,6 +24,7 @@ use bytes::Bytes;
 pub use error::Error;
 use handlers::{delete, get, options, propfind, put, report};
 use kith_core::store::ContactStore;
+use kith_api::api_router;
 use serde::Deserialize;
 use tower_http::trace::{
   DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer,
@@ -92,6 +93,7 @@ where
   S: ContactStore + Clone + Send + Sync + 'static,
   S::Error: std::error::Error + Send + Sync + 'static,
 {
+  let store = state.store.clone();
   Router::new()
     .route("/.well-known/carddav", any(well_known_dav_handler))
     .route("/.well-known/dav", any(well_known_dav_handler))
@@ -104,6 +106,9 @@ where
     )
     .route("/dav/{*path}", any(dav_wildcard_handler))
     .with_state(state)
+    // Nest the JSON API after applying CardDAV state; both routers are
+    // Router<()> at this point so the state types match.
+    .nest("/api", api_router(store))
     .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
     .layer(
       TraceLayer::new_for_http()

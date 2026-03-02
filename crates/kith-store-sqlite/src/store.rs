@@ -269,6 +269,58 @@ impl ContactStore for SqliteStore {
     Ok(fact)
   }
 
+  // ── Single-fact lookup ────────────────────────────────────────────────────
+
+  async fn get_fact(&self, id: Uuid) -> Result<Option<ResolvedFact>> {
+    let id_str = encode_uuid(id);
+
+    let raw: Option<RawResolvedFact> = self
+      .conn
+      .call(move |conn| {
+        Ok(
+          conn
+            .query_row(
+              "SELECT
+                 f.fact_id, f.subject_id, f.fact_type, f.value_json,
+                 f.recorded_at, f.effective_at, f.effective_until,
+                 f.source, f.confidence, f.recording_context, f.tags,
+                 s.new_fact_id   AS superseded_by,
+                 s.recorded_at   AS superseded_at,
+                 r.reason        AS retraction_reason,
+                 r.recorded_at   AS retracted_at
+               FROM facts f
+               LEFT JOIN supersessions s ON s.old_fact_id = f.fact_id
+               LEFT JOIN retractions   r ON r.fact_id     = f.fact_id
+               WHERE f.fact_id = ?1",
+              rusqlite::params![id_str],
+              |row| {
+                Ok(RawResolvedFact {
+                  fact_id:           row.get(0)?,
+                  subject_id:        row.get(1)?,
+                  fact_type:         row.get(2)?,
+                  value_json:        row.get(3)?,
+                  recorded_at:       row.get(4)?,
+                  effective_at:      row.get(5)?,
+                  effective_until:   row.get(6)?,
+                  source:            row.get(7)?,
+                  confidence:        row.get(8)?,
+                  recording_context: row.get(9)?,
+                  tags:              row.get(10)?,
+                  superseded_by:     row.get(11)?,
+                  superseded_at:     row.get(12)?,
+                  retraction_reason: row.get(13)?,
+                  retracted_at:      row.get(14)?,
+                })
+              },
+            )
+            .optional()?,
+        )
+      })
+      .await?;
+
+    raw.map(RawResolvedFact::into_resolved).transpose()
+  }
+
   // ── Lifecycle events ──────────────────────────────────────────────────────
 
   async fn supersede(

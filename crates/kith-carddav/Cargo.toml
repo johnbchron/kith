@@ -13,6 +13,7 @@ chrono = { workspace = true }
 clap = { workspace = true }
 config = { workspace = true }
 hex = { workspace = true }
+kith-api = { path = "../kith-api" }
 kith-core = { path = "../kith-core" }
 kith-store-sqlite = { path = "../kith-store-sqlite" }
 kith-vcard = { path = "../kith-vcard" }

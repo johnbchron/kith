@@ -112,6 +112,14 @@ pub trait ContactStore: Send + Sync {
 
   // ── Reads ─────────────────────────────────────────────────────────────
 
+  /// Retrieve a single fact by its UUID, with lifecycle status resolved.
+  ///
+  /// Returns `None` if no fact with that ID exists.
+  fn get_fact(
+    &self,
+    id: Uuid,
+  ) -> impl Future<Output = Result<Option<ResolvedFact>, Self::Error>> + Send + '_;
+
   /// Return all facts for a subject, with their lifecycle status resolved.
   ///
   /// - `as_of`: point-in-time filter on `recorded_at`; defaults to now.
