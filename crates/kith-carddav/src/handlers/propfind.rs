@@ -201,17 +201,28 @@ where
   Ok(multistatus_response(ms.finish()))
 }
 
+/// Namespace UUID for deriving stable v5 UUIDs from non-UUID contact UIDs.
+///
+/// Generated once for kith; must never change or existing contacts will
+/// shift to different UUIDs.
+const UID_NAMESPACE: Uuid =
+  Uuid::from_u128(0x6b697468_0000_5000_8000_000000000000);
+
 /// Parse `{uuid}.vcf` → `Uuid`.
+///
+/// If the path component is already a valid UUID it is used as-is.
+/// Otherwise a deterministic UUID v5 is derived from the raw string so that
+/// clients using non-UUID UIDs (e.g. Thunderbird's `alice@example.com` or
+/// braced `{…}` identifiers) always land on the same stable address without
+/// requiring any schema changes.
 pub fn parse_uid(uid_vcf: &str) -> Result<Uuid, Error> {
   let s = uid_vcf.strip_suffix(".vcf").unwrap_or(uid_vcf);
-  Uuid::parse_str(s).map_err(|_| {
-    // Thunderbird and other clients sometimes use non-UUID strings as the
-    // contact UID and mirror that directly into the URL path.  Log the raw
-    // value so we can see exactly what was sent.
-    tracing::warn!(
-      raw = %uid_vcf,
-      "resource path contains a non-UUID identifier",
-    );
-    Error::BadRequest(format!("invalid UUID: {uid_vcf}"))
-  })
+  if let Ok(uuid) = Uuid::parse_str(s) {
+    return Ok(uuid);
+  }
+  tracing::debug!(
+    raw = %s,
+    "non-UUID path component; deriving stable v5 UUID",
+  );
+  Ok(Uuid::new_v5(&UID_NAMESPACE, s.as_bytes()))
 }
