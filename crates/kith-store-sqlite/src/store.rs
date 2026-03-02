@@ -59,46 +59,6 @@ impl SqliteStore {
     Ok(())
   }
 
-  /// Check that a fact exists and is not already in a lifecycle event table.
-  ///
-  /// Returns `(exists, superseded_by_uuid, retracted_id_uuid)`.
-  async fn fact_lifecycle_check(
-    &self,
-    fact_id: Uuid,
-  ) -> Result<(bool, Option<Uuid>, Option<Uuid>)> {
-    let id_str = encode_uuid(fact_id);
-
-    let (exists_flag, sup_str, ret_str): (
-      Option<i64>,
-      Option<String>,
-      Option<String>,
-    ) = self
-      .conn
-      .call(move |conn| {
-        Ok(conn.query_row(
-          "SELECT \
-             (SELECT 1 FROM facts WHERE fact_id = ?1), \
-             (SELECT new_fact_id FROM supersessions WHERE old_fact_id = ?1), \
-             (SELECT retraction_id FROM retractions WHERE fact_id = ?1)",
-          rusqlite::params![id_str],
-          |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )?)
-      })
-      .await?;
-
-    let superseded_by = sup_str
-      .map(|s| Uuid::parse_str(&s))
-      .transpose()
-      .map_err(Error::Uuid)?;
-
-    let retracted_id = ret_str
-      .map(|s| Uuid::parse_str(&s))
-      .transpose()
-      .map_err(Error::Uuid)?;
-
-    Ok((exists_flag.is_some(), superseded_by, retracted_id))
-  }
-
   /// Insert a fully-built [`Fact`] into the `facts` table.
   async fn insert_fact(&self, fact: &Fact) -> Result<()> {
     let fact_id_str = encode_uuid(fact.fact_id);
@@ -328,51 +288,158 @@ impl ContactStore for SqliteStore {
     old_id: Uuid,
     replacement: NewFact,
   ) -> Result<(Supersession, Fact)> {
-    let (exists, superseded_by, retracted_id) =
-      self.fact_lifecycle_check(old_id).await?;
-
-    if !exists {
-      return Err(Error::FactNotFound(old_id));
-    }
-    if superseded_by.is_some() {
-      return Err(Error::AlreadySuperseded(old_id));
-    }
-    if retracted_id.is_some() {
-      return Err(Error::AlreadyRetracted(old_id));
-    }
-
-    let new_fact = self.record_fact(replacement).await?;
+    // Build the replacement fact outside the closure so encoding errors
+    // surface here, not inside conn.call.
+    let new_fact = Fact {
+      fact_id:           Uuid::new_v4(),
+      subject_id:        replacement.subject_id,
+      value:             replacement.value,
+      recorded_at:       Utc::now(),
+      effective_at:      replacement.effective_at,
+      effective_until:   replacement.effective_until,
+      source:            replacement.source,
+      confidence:        replacement.confidence,
+      recording_context: replacement.recording_context,
+      tags:              replacement.tags,
+    };
 
     if new_fact.fact_id == old_id {
       return Err(Error::SelfSupersession);
     }
 
-    let supersession = Supersession {
-      supersession_id: Uuid::new_v4(),
-      old_fact_id:     old_id,
-      new_fact_id:     new_fact.fact_id,
-      recorded_at:     Utc::now(),
-    };
+    // Pre-encode all strings (encoding can fail) before moving into the closure.
+    let new_fact_id_str = encode_uuid(new_fact.fact_id);
+    let new_subject_id_str = encode_uuid(new_fact.subject_id);
+    let fact_type = new_fact.value.discriminant().to_owned();
+    let value_json_str = new_fact.value.to_json()?.to_string();
+    let new_recorded_at_str = encode_dt(new_fact.recorded_at);
+    let new_effective_at_str = new_fact
+      .effective_at
+      .as_ref()
+      .map(encode_effective_date)
+      .transpose()?;
+    let new_effective_until_str = new_fact
+      .effective_until
+      .as_ref()
+      .map(encode_effective_date)
+      .transpose()?;
+    let new_confidence_str = new_fact.confidence.to_string();
+    let new_recording_ctx_str =
+      encode_recording_context(&new_fact.recording_context)?;
+    let new_tags_str = encode_tags(&new_fact.tags)?;
+    let new_source = new_fact.source.clone();
 
-    let sup_id_str = encode_uuid(supersession.supersession_id);
+    let supersession_id = Uuid::new_v4();
+    let sup_recorded_at = Utc::now();
+    let sup_id_str = encode_uuid(supersession_id);
     let old_id_str = encode_uuid(old_id);
-    let new_id_str = encode_uuid(new_fact.fact_id);
-    let at_str = encode_dt(supersession.recorded_at);
+    let sup_at_str = encode_dt(sup_recorded_at);
 
-    self
+    enum SupersedeOutcome {
+      NotFound,
+      AlreadySuperseded,
+      AlreadyRetracted,
+      Done,
+    }
+
+    let outcome = self
       .conn
       .call(move |conn| {
-        conn.execute(
-          "INSERT INTO supersessions (supersession_id, old_fact_id, \
-           new_fact_id, recorded_at)
-           VALUES (?1, ?2, ?3, ?4)",
-          rusqlite::params![sup_id_str, old_id_str, new_id_str, at_str],
+        let tx = conn.transaction()?;
+
+        // Lifecycle check — all three sub-queries inside the same transaction.
+        let (exists_flag, sup_str, ret_str): (
+          Option<i64>,
+          Option<String>,
+          Option<String>,
+        ) = tx.query_row(
+          "SELECT \
+             (SELECT 1 FROM facts WHERE fact_id = ?1), \
+             (SELECT new_fact_id FROM supersessions WHERE old_fact_id = ?1), \
+             (SELECT retraction_id FROM retractions WHERE fact_id = ?1)",
+          rusqlite::params![&old_id_str],
+          |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
-        Ok(())
+
+        if exists_flag.is_none() {
+          return Ok(SupersedeOutcome::NotFound);
+        }
+        if sup_str.is_some() {
+          return Ok(SupersedeOutcome::AlreadySuperseded);
+        }
+        if ret_str.is_some() {
+          return Ok(SupersedeOutcome::AlreadyRetracted);
+        }
+
+        // Insert the replacement fact inside the transaction.
+        tx.execute(
+          "INSERT INTO facts (
+             fact_id, subject_id, fact_type, value_json, recorded_at,
+             effective_at, effective_until, source,
+             confidence, recording_context, tags
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+          rusqlite::params![
+            &new_fact_id_str,
+            &new_subject_id_str,
+            &fact_type,
+            &value_json_str,
+            &new_recorded_at_str,
+            &new_effective_at_str,
+            &new_effective_until_str,
+            &new_source,
+            &new_confidence_str,
+            &new_recording_ctx_str,
+            &new_tags_str,
+          ],
+        )?;
+
+        // Insert the supersession record.  A UNIQUE constraint violation on
+        // old_fact_id means a concurrent task already superseded this fact.
+        // Rolling back the transaction prevents an orphan replacement fact.
+        match tx.execute(
+          "INSERT INTO supersessions \
+             (supersession_id, old_fact_id, new_fact_id, recorded_at) \
+             VALUES (?1, ?2, ?3, ?4)",
+          rusqlite::params![
+            &sup_id_str,
+            &old_id_str,
+            &new_fact_id_str,
+            &sup_at_str,
+          ],
+        ) {
+          Ok(_) => {}
+          Err(rusqlite::Error::SqliteFailure(ref err, _))
+            if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
+          {
+            // tx drops here → rolls back the fact INSERT (no orphan fact).
+            return Ok(SupersedeOutcome::AlreadySuperseded);
+          }
+          Err(e) => return Err(e.into()),
+        }
+
+        tx.commit()?;
+        Ok(SupersedeOutcome::Done)
       })
       .await?;
 
-    Ok((supersession, new_fact))
+    match outcome {
+      SupersedeOutcome::NotFound => Err(Error::FactNotFound(old_id)),
+      SupersedeOutcome::AlreadySuperseded => {
+        Err(Error::AlreadySuperseded(old_id))
+      }
+      SupersedeOutcome::AlreadyRetracted => {
+        Err(Error::AlreadyRetracted(old_id))
+      }
+      SupersedeOutcome::Done => {
+        let supersession = Supersession {
+          supersession_id,
+          old_fact_id: old_id,
+          new_fact_id: new_fact.fact_id,
+          recorded_at: sup_recorded_at,
+        };
+        Ok((supersession, new_fact))
+      }
+    }
   }
 
   async fn retract(
@@ -380,44 +447,85 @@ impl ContactStore for SqliteStore {
     fact_id: Uuid,
     reason: Option<String>,
   ) -> Result<Retraction> {
-    let (exists, superseded_by, retracted_id) =
-      self.fact_lifecycle_check(fact_id).await?;
-
-    if !exists {
-      return Err(Error::FactNotFound(fact_id));
-    }
-    if superseded_by.is_some() {
-      return Err(Error::AlreadySuperseded(fact_id));
-    }
-    if retracted_id.is_some() {
-      return Err(Error::AlreadyRetracted(fact_id));
-    }
-
-    let retraction = Retraction {
-      retraction_id: Uuid::new_v4(),
-      fact_id,
-      reason: reason.clone(),
-      recorded_at: Utc::now(),
-    };
-
-    let ret_id_str = encode_uuid(retraction.retraction_id);
+    let retraction_id = Uuid::new_v4();
+    let ret_recorded_at = Utc::now();
+    let ret_id_str = encode_uuid(retraction_id);
     let fact_id_str = encode_uuid(fact_id);
-    let at_str = encode_dt(retraction.recorded_at);
+    let at_str = encode_dt(ret_recorded_at);
+    let reason_for_insert = reason.clone();
 
-    self
+    enum RetractOutcome {
+      NotFound,
+      AlreadySuperseded,
+      AlreadyRetracted,
+      Done,
+    }
+
+    let outcome = self
       .conn
       .call(move |conn| {
-        conn.execute(
-          "INSERT INTO retractions (retraction_id, fact_id, reason, \
-           recorded_at)
-           VALUES (?1, ?2, ?3, ?4)",
-          rusqlite::params![ret_id_str, fact_id_str, reason, at_str],
+        let tx = conn.transaction()?;
+
+        let (exists_flag, sup_str, ret_str): (
+          Option<i64>,
+          Option<String>,
+          Option<String>,
+        ) = tx.query_row(
+          "SELECT \
+             (SELECT 1 FROM facts WHERE fact_id = ?1), \
+             (SELECT new_fact_id FROM supersessions WHERE old_fact_id = ?1), \
+             (SELECT retraction_id FROM retractions WHERE fact_id = ?1)",
+          rusqlite::params![&fact_id_str],
+          |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
-        Ok(())
+
+        if exists_flag.is_none() {
+          return Ok(RetractOutcome::NotFound);
+        }
+        if sup_str.is_some() {
+          return Ok(RetractOutcome::AlreadySuperseded);
+        }
+        if ret_str.is_some() {
+          return Ok(RetractOutcome::AlreadyRetracted);
+        }
+
+        // A UNIQUE constraint violation on fact_id means a concurrent task
+        // already retracted this fact.
+        match tx.execute(
+          "INSERT INTO retractions \
+             (retraction_id, fact_id, reason, recorded_at) \
+             VALUES (?1, ?2, ?3, ?4)",
+          rusqlite::params![&ret_id_str, &fact_id_str, &reason_for_insert, &at_str],
+        ) {
+          Ok(_) => {}
+          Err(rusqlite::Error::SqliteFailure(ref err, _))
+            if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
+          {
+            return Ok(RetractOutcome::AlreadyRetracted);
+          }
+          Err(e) => return Err(e.into()),
+        }
+
+        tx.commit()?;
+        Ok(RetractOutcome::Done)
       })
       .await?;
 
-    Ok(retraction)
+    match outcome {
+      RetractOutcome::NotFound => Err(Error::FactNotFound(fact_id)),
+      RetractOutcome::AlreadySuperseded => {
+        Err(Error::AlreadySuperseded(fact_id))
+      }
+      RetractOutcome::AlreadyRetracted => {
+        Err(Error::AlreadyRetracted(fact_id))
+      }
+      RetractOutcome::Done => Ok(Retraction {
+        retraction_id,
+        fact_id,
+        reason,
+        recorded_at: ret_recorded_at,
+      }),
+    }
   }
 
   // ── Reads ─────────────────────────────────────────────────────────────────

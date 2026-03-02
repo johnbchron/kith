@@ -124,21 +124,81 @@ where
     new_pairs.push((recorded.fact_id, recorded.recorded_at));
   }
 
-  for (old_id, replacement) in result.supersessions {
-    let (_, new_fact) = state
-      .store
-      .supersede(old_id, replacement)
-      .await
-      .map_err(|e| Error::Store(Box::new(e)))?;
-    new_pairs.push((new_fact.fact_id, new_fact.recorded_at));
+  // Apply supersessions and retractions with idempotency recovery.
+  //
+  // If any operation fails (e.g. due to a concurrent PUT for the same
+  // contact), re-materialize and re-diff to check whether the store already
+  // matches the incoming vCard.  If so, the concurrent writer already did the
+  // work and this PUT is a no-op — skip the remaining operations and proceed
+  // to ETag computation.  If the store still diverges, the error is genuine
+  // and we propagate it.
+  let mut idempotent_success = false;
+
+  'supersessions: for (old_id, replacement) in result.supersessions {
+    match state.store.supersede(old_id, replacement).await {
+      Ok((_, new_fact)) => {
+        new_pairs.push((new_fact.fact_id, new_fact.recorded_at));
+      }
+      Err(e) => {
+        let fresh_view = state
+          .store
+          .materialize(uid, None)
+          .await
+          .map_err(|me| Error::Store(Box::new(me)))?;
+        let re_diff =
+          diff::diff(body, uid, "carddav-put", fresh_view.as_ref())
+            .map_err(|de| {
+              Error::BadRequest(format!("vCard parse error: {de}"))
+            })?;
+        if re_diff.new_facts.is_empty()
+          && re_diff.supersessions.is_empty()
+          && re_diff.retractions.is_empty()
+        {
+          tracing::debug!(
+            uid = %uid,
+            "PUT idempotent: concurrent write already applied supersessions",
+          );
+          idempotent_success = true;
+          break 'supersessions;
+        }
+        return Err(Error::Store(Box::new(e)));
+      }
+    }
   }
 
-  for fact_id in result.retractions {
-    state
-      .store
-      .retract(fact_id, Some("Superseded by CardDAV PUT".to_string()))
-      .await
-      .map_err(|e| Error::Store(Box::new(e)))?;
+  if !idempotent_success {
+    for fact_id in result.retractions {
+      match state
+        .store
+        .retract(fact_id, Some("Superseded by CardDAV PUT".to_string()))
+        .await
+      {
+        Ok(_) => {}
+        Err(e) => {
+          let fresh_view = state
+            .store
+            .materialize(uid, None)
+            .await
+            .map_err(|me| Error::Store(Box::new(me)))?;
+          let re_diff =
+            diff::diff(body, uid, "carddav-put", fresh_view.as_ref())
+              .map_err(|de| {
+                Error::BadRequest(format!("vCard parse error: {de}"))
+              })?;
+          if re_diff.new_facts.is_empty()
+            && re_diff.supersessions.is_empty()
+            && re_diff.retractions.is_empty()
+          {
+            tracing::debug!(
+              uid = %uid,
+              "PUT idempotent: concurrent write already applied retractions",
+            );
+            break;
+          }
+          return Err(Error::Store(Box::new(e)));
+        }
+      }
+    }
   }
 
   let new_etag = match state
