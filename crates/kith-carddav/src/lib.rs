@@ -23,13 +23,10 @@ use axum::{
 use bytes::Bytes;
 pub use error::Error;
 use handlers::{delete, get, options, propfind, put, report};
-use kith_core::store::ContactStore;
 use kith_api::api_router;
+use kith_core::store::ContactStore;
 use serde::Deserialize;
-use tower_http::trace::{
-  DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer,
-};
-use tracing::Level;
+use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 
 // ─── Configuration
 // ────────────────────────────────────────────────────────────
@@ -65,14 +62,14 @@ fn require_auth<S>(
   method: &Method,
   headers: &HeaderMap,
   state: &AppState<S>,
-) -> Result<(), Response>
+) -> Result<(), Box<Response>>
 where
   S: ContactStore + Clone + Send + Sync + 'static,
 {
   if method == Method::OPTIONS {
     return Ok(());
   }
-  verify_auth(headers, &state.auth).map_err(|e| e.into_response())
+  verify_auth(headers, &state.auth).map_err(|e| Box::new(e.into_response()))
 }
 
 /// Parse the `Depth` header as a `u8`, defaulting to `0`.
@@ -112,9 +109,7 @@ where
     .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
     .layer(
       TraceLayer::new_for_http()
-        .make_span_with(DefaultMakeSpan::new().include_headers(true))
-        .on_request(DefaultOnRequest::new().level(Level::INFO))
-        .on_response(DefaultOnResponse::new().level(Level::INFO)),
+        .make_span_with(DefaultMakeSpan::new().include_headers(true)),
     )
 }
 
@@ -131,7 +126,7 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   if let Err(r) = require_auth(&method, &headers, &state) {
-    return r;
+    return *r;
   }
   match method.as_str() {
     "OPTIONS" => options::handler(),
@@ -153,7 +148,7 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   if let Err(r) = require_auth(&method, &headers, &state) {
-    return r;
+    return *r;
   }
   match method.as_str() {
     "OPTIONS" => options::handler(),
@@ -176,7 +171,7 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   if let Err(r) = require_auth(&method, &headers, &state) {
-    return r;
+    return *r;
   }
   match method.as_str() {
     "OPTIONS" => options::handler(),
@@ -202,7 +197,7 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   if let Err(r) = require_auth(&method, &headers, &state) {
-    return r;
+    return *r;
   }
   // Attach the addressbook name and raw resource identifier to every
   // tracing event emitted while handling this request.

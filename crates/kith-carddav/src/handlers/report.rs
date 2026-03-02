@@ -42,8 +42,8 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   let base = &state.config.base_url;
-  let want_address_data = report.props.iter().any(|p| *p == PropName::AddressData);
-  let want_etag = report.props.iter().any(|p| *p == PropName::GetETag);
+  let want_address_data = report.props.contains(&PropName::AddressData);
+  let want_etag = report.props.contains(&PropName::GetETag);
 
   let mut ms = MultistatusBuilder::new();
 
@@ -100,8 +100,8 @@ where
   S::Error: std::error::Error + Send + Sync + 'static,
 {
   let base = &state.config.base_url;
-  let want_address_data = report.props.iter().any(|p| *p == PropName::AddressData);
-  let want_etag = report.props.iter().any(|p| *p == PropName::GetETag);
+  let want_address_data = report.props.contains(&PropName::AddressData);
+  let want_etag = report.props.contains(&PropName::GetETag);
 
   let subjects = state
     .store
@@ -153,7 +153,11 @@ fn canonicalize_href(base: &str, ab: &str, href: &str) -> String {
     href.to_string()
   } else {
     // Relative: reconstruct from the uid component.
-    let last = href.trim_end_matches('/').rsplit('/').next().unwrap_or(href);
+    let last = href
+      .trim_end_matches('/')
+      .rsplit('/')
+      .next()
+      .unwrap_or(href);
     format!("{base}/dav/addressbooks/{ab}/{last}")
   }
 }
@@ -167,9 +171,8 @@ mod tests {
   #[test]
   fn uid_from_absolute_href() {
     let uid = Uuid::new_v4();
-    let href = format!(
-      "https://contacts.jlewis.sh/dav/addressbooks/personal/{uid}.vcf"
-    );
+    let href =
+      format!("https://contacts.jlewis.sh/dav/addressbooks/personal/{uid}.vcf");
     assert_eq!(uid_from_href(&href), Some(uid));
   }
 
@@ -186,16 +189,21 @@ mod tests {
   }
 }
 
-/// Verify that an `addressbook-multiget` report with a bad status (missing machine)
-/// returns a 404 response element, not a 500.
+/// Verify that an `addressbook-multiget` report with a bad status (missing
+/// machine) returns a 404 response element, not a 500.
 #[cfg(test)]
 mod integration {
-  use axum::body::Body;
-  use axum::http::{Request, header};
+  use axum::{
+    body::Body,
+    http::{Request, header},
+  };
   use tower::ServiceExt as _;
   use uuid::Uuid;
 
-  use crate::{router, test_helpers::{auth_header, make_state}};
+  use crate::{
+    router,
+    test_helpers::{auth_header, make_state},
+  };
 
   #[tokio::test]
   async fn multiget_nonexistent_returns_207_with_404_response() {

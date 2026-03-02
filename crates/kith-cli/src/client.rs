@@ -1,9 +1,10 @@
 //! Async HTTP client wrapping the kith JSON API.
 
+use std::time::Duration;
+
 use anyhow::{Context, Result, anyhow};
 use kith_core::{lifecycle::ResolvedFact, subject::Subject};
 use reqwest::Client;
-use std::time::Duration;
 use uuid::Uuid;
 
 /// Connection settings for the kith API.
@@ -33,14 +34,10 @@ impl ApiClient {
   }
 
   fn url(&self, path: &str) -> String {
-    format!(
-      "{}/api{}",
-      self.config.base_url.trim_end_matches('/'),
-      path
-    )
+    format!("{}/api{}", self.config.base_url.trim_end_matches('/'), path)
   }
 
-  fn auth<'a>(&'a self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+  fn auth(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     if self.config.username.is_empty() {
       req
     } else {
@@ -89,7 +86,10 @@ impl ApiClient {
   }
 
   /// `GET /api/facts?subject_id=<id>&fact_type=name`
-  pub async fn get_name_facts(&self, subject_id: Uuid) -> Result<Vec<ResolvedFact>> {
+  pub async fn get_name_facts(
+    &self,
+    subject_id: Uuid,
+  ) -> Result<Vec<ResolvedFact>> {
     let resp = self
       .auth(self.client.get(self.url("/facts")))
       .query(&[
