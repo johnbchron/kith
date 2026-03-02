@@ -1,15 +1,15 @@
 //! Contact detail pane — right panel, Facts tab.
 
-use kith_core::fact::{ContactLabel, FactValue};
+use kith_core::fact::{Confidence, ContactLabel, FactValue};
 use ratatui::{
   Frame,
   layout::Rect,
-  style::{Color, Modifier, Style},
+  style::Style,
   text::{Line, Span},
   widgets::{Block, Borders, Paragraph},
 };
 
-use crate::app::App;
+use crate::{app::App, colors};
 
 // ─── Public entry ─────────────────────────────────────────────────────────────
 
@@ -22,93 +22,107 @@ pub fn draw(f: &mut Frame, area: Rect, app: &App) {
     .unwrap_or("(unknown)");
 
   let block = Block::default()
-    .title(format!(" {subject_name} "))
+    .title(Span::styled(
+      format!(" {subject_name} "),
+      colors::style_accent_hi(),
+    ))
     .borders(Borders::ALL)
-    .border_style(Style::default().fg(Color::DarkGray));
+    .border_style(colors::style_border_focus())
+    .style(Style::default().bg(colors::panel_bg()));
 
   let inner = block.inner(area);
   f.render_widget(block, area);
 
   if app.selected_subject_id.is_none() {
-    let hint = Paragraph::new("Press Enter to view a contact.")
-      .style(Style::default().fg(Color::DarkGray));
-    f.render_widget(hint, inner);
+    f.render_widget(
+      Paragraph::new(Span::styled(
+        "Select a contact and press Enter.",
+        colors::style_muted(),
+      )),
+      inner,
+    );
     return;
   }
 
   if app.facts.is_empty() {
-    let empty = Paragraph::new("No active facts.")
-      .style(Style::default().fg(Color::DarkGray));
-    f.render_widget(empty, inner);
+    f.render_widget(
+      Paragraph::new(Span::styled(
+        "No active facts for this contact.",
+        colors::style_muted(),
+      )),
+      inner,
+    );
     return;
   }
 
-  // Build lines: one per active fact, grouped visually.
+  // Build one line per active fact, with a blank line between type groups.
   let mut lines: Vec<Line> = Vec::new();
-
-  // Group by fact type discriminant for tidy display.
   let mut last_type = "";
+
   for rf in &app.facts {
     let type_str = rf.fact.value.discriminant();
+
     if type_str != last_type && !last_type.is_empty() {
       lines.push(Line::from(""));
     }
     last_type = type_str;
 
     let (type_label, value_str, extra) = format_fact(&rf.fact.value);
-    let confidence_badge = match rf.fact.confidence {
-      kith_core::fact::Confidence::Certain => "",
-      kith_core::fact::Confidence::Probable => " ~",
-      kith_core::fact::Confidence::Rumored => " ?",
+
+    // Confidence suffix.
+    let conf_span: Option<Span> = match rf.fact.confidence {
+      Confidence::Certain => None,
+      Confidence::Probable => Some(Span::styled(
+        "  ~probable",
+        Style::default().fg(colors::probable()),
+      )),
+      Confidence::Rumored => Some(Span::styled(
+        "  ?rumored",
+        Style::default().fg(colors::rumored()),
+      )),
     };
 
-    let mut spans = vec![
-      Span::styled(
-        format!("{:<14}", type_label),
-        Style::default()
-          .fg(Color::Cyan)
-          .add_modifier(Modifier::BOLD),
-      ),
-      Span::raw(value_str),
+    let mut spans: Vec<Span> = vec![
+      Span::styled(format!("{:<14}", type_label), colors::style_accent_text()),
+      Span::styled(value_str, colors::style_text()),
     ];
 
     if !extra.is_empty() {
       spans.push(Span::styled(
         format!("  {extra}"),
-        Style::default().fg(Color::DarkGray),
+        colors::style_muted(),
       ));
     }
 
-    if !confidence_badge.is_empty() {
-      spans.push(Span::styled(
-        confidence_badge.to_string(),
-        Style::default().fg(Color::Yellow),
-      ));
+    if let Some(cs) = conf_span {
+      spans.push(cs);
     }
 
     if !rf.fact.tags.is_empty() {
       spans.push(Span::styled(
         format!("  [{}]", rf.fact.tags.join(", ")),
-        Style::default().fg(Color::DarkGray),
+        colors::style_subtle(),
       ));
     }
 
     lines.push(Line::from(spans));
   }
 
-  // Hints at the bottom (Phase A: read-only).
+  // Phase-B/C hint footer.
   lines.push(Line::from(""));
   lines.push(Line::from(vec![Span::styled(
-    "[Phase B] history  [Phase C] edit / retract / add",
-    Style::default().fg(Color::DarkGray),
+    "Phase B: history  Phase C: edit / retract / add",
+    colors::style_subtle(),
   )]));
 
-  let scroll_offset = app.detail_scroll as u16;
-  let para = Paragraph::new(lines).scroll((scroll_offset, 0));
-  f.render_widget(para, inner);
+  let scroll = app.detail_scroll as u16;
+  f.render_widget(
+    Paragraph::new(lines).scroll((scroll, 0)),
+    inner,
+  );
 }
 
-// ─── Fact formatting helpers ──────────────────────────────────────────────────
+// ─── Fact formatting ──────────────────────────────────────────────────────────
 
 /// Returns `(type_label, value_string, extra_string)` for a fact value.
 fn format_fact(value: &FactValue) -> (&'static str, String, String) {
@@ -121,7 +135,11 @@ fn format_fact(value: &FactValue) -> (&'static str, String, String) {
     ),
     FactValue::Photo(_) => ("photo", "(photo)".into(), String::new()),
     FactValue::Birthday(d) => ("birthday", d.format("%Y-%m-%d").to_string(), String::new()),
-    FactValue::Anniversary(d) => ("anniversary", d.format("%Y-%m-%d").to_string(), String::new()),
+    FactValue::Anniversary(d) => (
+      "anniversary",
+      d.format("%Y-%m-%d").to_string(),
+      String::new(),
+    ),
     FactValue::Gender(g) => ("gender", g.clone(), String::new()),
 
     FactValue::Email(e) => ("email", e.address.clone(), format_label(&e.label)),
@@ -150,7 +168,8 @@ fn format_fact(value: &FactValue) -> (&'static str, String, String) {
       let extra = o
         .title
         .as_deref()
-        .unwrap_or(o.role.as_deref().unwrap_or(""))
+        .or(o.role.as_deref())
+        .unwrap_or("")
         .to_string();
       ("org", o.org_name.clone(), extra)
     }

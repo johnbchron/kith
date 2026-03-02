@@ -7,12 +7,15 @@ use chrono::Local;
 use ratatui::{
   Frame,
   layout::{Constraint, Direction, Layout, Rect},
-  style::{Color, Modifier, Style},
+  style::Style,
   text::{Line, Span},
   widgets::{Block, Borders, Paragraph},
 };
 
-use crate::app::{App, Screen};
+use crate::{
+  app::{App, Screen},
+  colors,
+};
 
 // ─── Root draw ────────────────────────────────────────────────────────────────
 
@@ -20,7 +23,13 @@ use crate::app::{App, Screen};
 pub fn draw(f: &mut Frame, app: &App) {
   let area = f.area();
 
-  // Vertical stack: header, body, status bar.
+  // Flood-fill every cell with the app background before anything else so
+  // the native terminal colour never shows through transparent areas.
+  f.render_widget(
+    Block::default().style(Style::default().bg(colors::app_bg())),
+    area,
+  );
+
   let rows = Layout::default()
     .direction(Direction::Vertical)
     .constraints([
@@ -40,57 +49,47 @@ pub fn draw(f: &mut Frame, app: &App) {
 fn draw_header(f: &mut Frame, area: Rect, _app: &App) {
   let date = Local::now().format("%Y-%m-%d").to_string();
 
-  let left = Span::styled(
-    " kith  [/] search  [q] quit",
+  let title = Span::styled(
+    " kith",
     Style::default()
-      .fg(Color::White)
-      .add_modifier(Modifier::BOLD),
+      .fg(colors::accent_text())
+      .add_modifier(ratatui::style::Modifier::BOLD),
   );
-  let right = Span::styled(
-    format!("{date} "),
-    Style::default().fg(Color::DarkGray),
+  let hints = Span::styled(
+    "  [/] search  [q] quit",
+    colors::style_muted(),
   );
+  let date_span = Span::styled(format!("{date} "), colors::style_subtle());
 
-  // Simple left-right header: pad the middle.
-  let left_width = left.content.len() as u16;
-  let right_width = right.content.len() as u16;
-  let pad = area
-    .width
-    .saturating_sub(left_width)
-    .saturating_sub(right_width);
+  let title_w = 5u16;
+  let hints_w = 22u16;
+  let date_w = date_span.content.len() as u16;
+  let pad = area.width.saturating_sub(title_w + hints_w + date_w);
 
   let line = Line::from(vec![
-    left,
+    title,
+    hints,
     Span::raw(" ".repeat(pad as usize)),
-    right,
+    date_span,
   ]);
 
-  let block = Block::default().style(Style::default().bg(Color::DarkGray));
-  let inner = block.inner(area);
-  f.render_widget(block, area);
-  f.render_widget(Paragraph::new(line), inner);
+  f.render_widget(
+    Paragraph::new(line)
+      .style(Style::default().bg(colors::accent_bg())),
+    area,
+  );
 }
 
 // ─── Body ─────────────────────────────────────────────────────────────────────
 
 fn draw_body(f: &mut Frame, area: Rect, app: &App) {
-  // Split into left list pane (30%) and right detail pane (70%).
   let cols = Layout::default()
     .direction(Direction::Horizontal)
     .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
     .split(area);
 
-  // List pane: dimmed when detail is focused, normal otherwise.
-  let list_style = if app.screen == Screen::ContactDetail {
-    Style::default().fg(Color::DarkGray)
-  } else {
-    Style::default()
-  };
-  // Apply dim by overriding the block; contact_list::draw uses its own block.
-  let _ = list_style; // contact_list handles its own highlighting
   contact_list::draw(f, cols[0], app);
 
-  // Detail pane.
   if app.selected_subject_id.is_some() {
     contact_detail::draw(f, cols[1], app);
   } else {
@@ -100,16 +99,17 @@ fn draw_body(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_empty_detail(f: &mut Frame, area: Rect) {
   let block = Block::default()
-    .title(" Detail ")
+    .title(Span::styled(" Detail ", colors::style_muted()))
     .borders(Borders::ALL)
-    .border_style(Style::default().fg(Color::DarkGray));
+    .border_style(colors::style_border())
+    .style(Style::default().bg(colors::panel_bg()));
   let inner = block.inner(area);
   f.render_widget(block, area);
   f.render_widget(
-    Paragraph::new(Line::from(vec![Span::styled(
+    Paragraph::new(Span::styled(
       "Select a contact and press Enter.",
-      Style::default().fg(Color::DarkGray),
-    )])),
+      colors::style_subtle(),
+    )),
     inner,
   );
 }
@@ -128,7 +128,7 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     ),
     Screen::ContactDetail => (
       "DETAIL",
-      "↑↓/jk scroll  [/] scroll  Esc back  [ ] prev  ] next  q quit",
+      "↑↓/jk scroll  Esc back  [/] prev/next contact  q quit",
     ),
   };
 
@@ -138,21 +138,13 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     app.status_msg.clone()
   };
 
-  let mode_span = Span::styled(
-    format!(" {mode_label} "),
-    Style::default()
-      .fg(Color::Black)
-      .bg(Color::Cyan)
-      .add_modifier(Modifier::BOLD),
-  );
-  let hint_span = Span::styled(
-    format!("  {status}"),
-    Style::default().fg(Color::DarkGray),
-  );
+  let line = Line::from(vec![
+    Span::styled(format!(" {mode_label} "), colors::style_mode_badge()),
+    Span::styled(format!("  {status}"), colors::style_muted()),
+  ]);
 
-  let line = Line::from(vec![mode_span, hint_span]);
   f.render_widget(
-    Paragraph::new(line).style(Style::default().bg(Color::Black)),
+    Paragraph::new(line).style(Style::default().bg(colors::accent_subtle())),
     area,
   );
 }

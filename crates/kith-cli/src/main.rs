@@ -9,6 +9,7 @@
 
 mod app;
 mod client;
+mod colors;
 mod ui;
 
 use std::{io, time::Duration};

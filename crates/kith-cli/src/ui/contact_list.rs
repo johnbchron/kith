@@ -4,19 +4,18 @@ use kith_core::subject::SubjectKind;
 use ratatui::{
   Frame,
   layout::Rect,
-  style::{Color, Modifier, Style},
+  style::Style,
   text::{Line, Span},
-  widgets::{Block, Borders, List, ListItem, ListState},
+  widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 
-use crate::app::App;
+use crate::{app::App, colors};
 
 /// Render the contact list into `area`.
 pub fn draw(f: &mut Frame, area: Rect, app: &App) {
   let filtered = app.filtered_subjects();
   let total = app.subjects.len();
 
-  // Title with count.
   let title = if app.filter_active || !app.filter.is_empty() {
     format!(" Contacts ({}/{}) ", filtered.len(), total)
   } else {
@@ -24,72 +23,61 @@ pub fn draw(f: &mut Frame, area: Rect, app: &App) {
   };
 
   let block = Block::default()
-    .title(title)
+    .title(Span::styled(title, colors::style_muted()))
     .borders(Borders::ALL)
-    .border_style(Style::default().fg(Color::DarkGray));
+    .border_style(colors::style_border())
+    .style(Style::default().bg(colors::panel_bg()));
 
-  // Build list items.
+  let inner_area = block.inner(area);
+  f.render_widget(block, area);
+
+  // Reserve the bottom row for the filter bar when active.
+  let (list_area, filter_area) = if app.filter_active || !app.filter.is_empty() {
+    (
+      Rect { height: inner_area.height.saturating_sub(1), ..inner_area },
+      Some(Rect {
+        y:      inner_area.y + inner_area.height.saturating_sub(1),
+        height: 1,
+        ..inner_area
+      }),
+    )
+  } else {
+    (inner_area, None)
+  };
+
+  // Render the filter bar.
+  if let Some(fa) = filter_area {
+    let cursor = if app.filter_active { "_" } else { "" };
+    let text = format!("/{}{}", app.filter, cursor);
+    f.render_widget(
+      Paragraph::new(Span::styled(text, Style::default().fg(colors::filter_prompt()))),
+      fa,
+    );
+  }
+
+  // Build list items — no per-item cursor style; ListState drives highlighting.
   let items: Vec<ListItem> = filtered
     .iter()
-    .enumerate()
-    .map(|(i, subject)| {
+    .map(|subject| {
       let name = app
         .names
         .get(&subject.subject_id)
         .map(String::as_str)
         .unwrap_or("—");
 
-      let kind_icon = match subject.kind {
-        SubjectKind::Person => "👤 ",
-        SubjectKind::Organization => "🏢 ",
-        SubjectKind::Group => "👥 ",
-      };
-
-      let is_cursor = i == app.list_cursor;
-
-      let style = if is_cursor {
-        Style::default()
-          .bg(Color::Blue)
-          .fg(Color::White)
-          .add_modifier(Modifier::BOLD)
-      } else {
-        Style::default()
+      let icon = match subject.kind {
+        SubjectKind::Person => "  ",
+        SubjectKind::Organization => "  ",
+        SubjectKind::Group => "  ",
       };
 
       ListItem::new(Line::from(vec![
-        Span::styled(kind_icon, style),
-        Span::styled(name.to_string(), style),
+        Span::styled(icon, colors::style_subtle()),
+        Span::styled(name, colors::style_text()),
       ]))
     })
     .collect();
 
-  // Build filter line if active.
-  let mut inner_area = block.inner(area);
-  f.render_widget(block, area);
-
-  // If filter is active or set, show a filter bar at the bottom of the inner area.
-  if app.filter_active || !app.filter.is_empty() && inner_area.height > 2 {
-    let filter_area = Rect {
-      x:      inner_area.x,
-      y:      inner_area.y + inner_area.height - 1,
-      width:  inner_area.width,
-      height: 1,
-    };
-    inner_area.height = inner_area.height.saturating_sub(1);
-
-    let filter_text = if app.filter_active {
-      format!("/{}_", app.filter)
-    } else {
-      format!("/{}", app.filter)
-    };
-    let filter_style = Style::default().fg(Color::Yellow);
-    f.render_widget(
-      ratatui::widgets::Paragraph::new(filter_text).style(filter_style),
-      filter_area,
-    );
-  }
-
-  // Scrollable list with cursor tracking.
   let mut state = ListState::default();
   state.select(if filtered.is_empty() {
     None
@@ -99,14 +87,9 @@ pub fn draw(f: &mut Frame, area: Rect, app: &App) {
 
   f.render_stateful_widget(
     List::new(items)
-      .highlight_style(
-        Style::default()
-          .bg(Color::Blue)
-          .fg(Color::White)
-          .add_modifier(Modifier::BOLD),
-      )
-      .highlight_symbol(""),
-    inner_area,
+      .highlight_style(colors::style_selected())
+      .highlight_symbol("▶ "),
+    list_area,
     &mut state,
   );
 }

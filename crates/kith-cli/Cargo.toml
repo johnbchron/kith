@@ -11,6 +11,7 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
+radix-colors-rs = "0.1"
 crossterm = "0.28"
 fuzzy-matcher = "0.3"
 kith-core = { path = "../kith-core" }
