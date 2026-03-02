@@ -204,6 +204,14 @@ where
 /// Parse `{uuid}.vcf` → `Uuid`.
 pub fn parse_uid(uid_vcf: &str) -> Result<Uuid, Error> {
   let s = uid_vcf.strip_suffix(".vcf").unwrap_or(uid_vcf);
-  Uuid::parse_str(s)
-    .map_err(|_| Error::BadRequest(format!("invalid UUID: {uid_vcf}")))
+  Uuid::parse_str(s).map_err(|_| {
+    // Thunderbird and other clients sometimes use non-UUID strings as the
+    // contact UID and mirror that directly into the URL path.  Log the raw
+    // value so we can see exactly what was sent.
+    tracing::warn!(
+      raw = %uid_vcf,
+      "resource path contains a non-UUID identifier",
+    );
+    Error::BadRequest(format!("invalid UUID: {uid_vcf}"))
+  })
 }

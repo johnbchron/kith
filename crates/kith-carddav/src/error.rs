@@ -40,17 +40,27 @@ impl IntoResponse for Error {
       }
       Error::NotFound => (StatusCode::NOT_FOUND, "Not Found").into_response(),
       Error::PreconditionFailed => {
+        tracing::warn!("precondition failed (412)");
         (StatusCode::PRECONDITION_FAILED, "Precondition Failed").into_response()
       }
-      Error::Conflict(msg) => (StatusCode::CONFLICT, msg).into_response(),
-      Error::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
+      Error::Conflict(msg) => {
+        tracing::warn!(reason = %msg, "conflict (409)");
+        (StatusCode::CONFLICT, msg).into_response()
+      }
+      Error::BadRequest(msg) => {
+        tracing::warn!(reason = %msg, "bad request (400)");
+        (StatusCode::BAD_REQUEST, msg).into_response()
+      }
       Error::Xml(msg) => {
+        tracing::error!(reason = %msg, "XML processing error (500)");
         (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
       }
       Error::Vcard(e) => {
+        tracing::error!(error = %e, "vCard processing error (500)");
         (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
       }
       Error::Store(e) => {
+        tracing::error!(error = %e, "store error (500)");
         (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
       }
     }

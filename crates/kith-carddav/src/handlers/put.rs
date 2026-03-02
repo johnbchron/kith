@@ -63,6 +63,11 @@ where
         .map(|v| !v.active_facts.is_empty())
         .unwrap_or(false);
       if visible {
+        tracing::warn!(
+          uid = %uid,
+          if_none_match = "*",
+          "PUT rejected: resource already exists (If-None-Match: *)",
+        );
         return Err(Error::PreconditionFailed);
       }
     }
@@ -76,6 +81,12 @@ where
         .ok_or(Error::NotFound)?;
       let current_etag = compute_etag(&view);
       if strip_etag_quotes(&current_etag) != strip_etag_quotes(etag_header) {
+        tracing::warn!(
+          uid = %uid,
+          if_match = %etag_header,
+          current_etag = %current_etag,
+          "PUT rejected: ETag mismatch (If-Match)",
+        );
         return Err(Error::PreconditionFailed);
       }
     }
@@ -87,7 +98,21 @@ where
     .await
     .map_err(|e| Error::Store(Box::new(e)))?;
 
-  let result = diff::diff(body, uid, "carddav-put", current_view.as_ref())?;
+  let result = diff::diff(body, uid, "carddav-put", current_view.as_ref())
+    .map_err(|e| {
+      // A parse error here means the client sent a malformed vCard — that is
+      // a 400, not a 500.  Log a truncated excerpt so the problem vCard can
+      // be identified in the logs without emitting the full (potentially
+      // large) body.
+      let excerpt: String = body.chars().take(256).collect();
+      tracing::warn!(
+        uid = %uid,
+        error = %e,
+        vcard_excerpt = %excerpt,
+        "PUT rejected: vCard parse error",
+      );
+      Error::BadRequest(format!("vCard parse error: {e}"))
+    })?;
 
   let mut new_pairs = Vec::new();
   for new_fact in result.new_facts {

@@ -204,6 +204,16 @@ where
   if let Err(r) = require_auth(&method, &headers, &state) {
     return r;
   }
+  // Attach the addressbook name and raw resource identifier to every
+  // tracing event emitted while handling this request.
+  let span = tracing::info_span!(
+    "carddav.resource",
+    ab = %ab,
+    uid = %uid_vcf,
+    method = %method,
+  );
+  let _guard = span.enter();
+
   match method.as_str() {
     "OPTIONS" => options::handler(),
     "GET" | "HEAD" => get::handler(&state, &method, &uid_vcf)
@@ -213,6 +223,12 @@ where
       let body_str = match std::str::from_utf8(&body) {
         Ok(s) => s,
         Err(_) => {
+          tracing::warn!(
+            ab = %ab,
+            uid = %uid_vcf,
+            body_len = body.len(),
+            "PUT body is not valid UTF-8",
+          );
           return Error::BadRequest("body is not valid UTF-8".to_string())
             .into_response();
         }
