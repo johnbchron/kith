@@ -1,5 +1,5 @@
-//! Encoding and decoding helpers between Rust domain types and the plain-text
-//! representations stored in SQLite columns.
+//! Encoding helpers between Rust domain types and the plain-text
+//! representations stored in SQLite columns, plus `FromRow` row structs.
 //!
 //! All timestamps are stored as RFC 3339 strings. Structured fields
 //! (EffectiveDate, Confidence, RecordingContext, tags) are stored as compact
@@ -21,8 +21,7 @@ pub fn encode_uuid(id: Uuid) -> String { id.hyphenated().to_string() }
 
 pub fn decode_uuid(s: &str) -> Result<Uuid> { Ok(Uuid::parse_str(s)?) }
 
-// ─── DateTime<Utc>
-// ────────────────────────────────────────────────────────────
+// ─── DateTime<Utc> ────────────────────────────────────────────────────────────
 
 pub fn encode_dt(dt: DateTime<Utc>) -> String { dt.to_rfc3339() }
 
@@ -32,41 +31,10 @@ pub fn decode_dt(s: &str) -> Result<DateTime<Utc>> {
     .map_err(|e| Error::DateParse(e.to_string()))
 }
 
-// ─── EffectiveDate
-// ────────────────────────────────────────────────────────────
-
-pub fn encode_effective_date(d: &EffectiveDate) -> Result<String> {
-  Ok(serde_json::to_string(d)?)
-}
-
-pub fn decode_effective_date(s: &str) -> Result<EffectiveDate> {
-  Ok(serde_json::from_str(s)?)
-}
-
-// ─── RecordingContext
-// ─────────────────────────────────────────────────────────
-
-pub fn encode_recording_context(rc: &RecordingContext) -> Result<String> {
-  Ok(serde_json::to_string(rc)?)
-}
-
-pub fn decode_recording_context(s: &str) -> Result<RecordingContext> {
-  Ok(serde_json::from_str(s)?)
-}
-
-// ─── Tags ────────────────────────────────────────────────────────────────────
-
-pub fn encode_tags(tags: &[String]) -> Result<String> {
-  Ok(serde_json::to_string(tags)?)
-}
-
-pub fn decode_tags(s: &str) -> Result<Vec<String>> {
-  Ok(serde_json::from_str(s)?)
-}
-
-// ─── Row types ───────────────────────────────────────────────────────────────
+// ─── Row types ────────────────────────────────────────────────────────────────
 
 /// Raw strings read directly from a `facts` row joined with lifecycle tables.
+#[derive(sqlx::FromRow)]
 pub struct RawResolvedFact {
   // facts columns
   pub fact_id:           String,
@@ -100,21 +68,22 @@ impl RawResolvedFact {
     let effective_at = self
       .effective_at
       .as_deref()
-      .map(decode_effective_date)
+      .map(|s| serde_json::from_str::<EffectiveDate>(s).map_err(Error::from))
       .transpose()?;
 
     let effective_until = self
       .effective_until
       .as_deref()
-      .map(decode_effective_date)
+      .map(|s| serde_json::from_str::<EffectiveDate>(s).map_err(Error::from))
       .transpose()?;
 
     let confidence = self
       .confidence
       .parse::<Confidence>()
       .map_err(|e| Error::DateParse(e.to_string()))?;
-    let recording_context = decode_recording_context(&self.recording_context)?;
-    let tags = decode_tags(&self.tags)?;
+    let recording_context =
+      serde_json::from_str::<RecordingContext>(&self.recording_context)?;
+    let tags = serde_json::from_str::<Vec<String>>(&self.tags)?;
 
     let fact = Fact {
       fact_id,
@@ -150,6 +119,7 @@ impl RawResolvedFact {
 }
 
 /// Raw strings read directly from a `subjects` row.
+#[derive(sqlx::FromRow)]
 pub struct RawSubject {
   pub subject_id: String,
   pub created_at: String,

@@ -8,7 +8,10 @@ pub enum Error {
   Core(#[from] kith_core::Error),
 
   #[error("database error: {0}")]
-  Database(#[from] tokio_rusqlite::Error),
+  Database(#[from] sqlx::Error),
+
+  #[error("migration error: {0}")]
+  Migrate(#[from] sqlx::migrate::MigrateError),
 
   #[error("json error: {0}")]
   Json(#[from] serde_json::Error),

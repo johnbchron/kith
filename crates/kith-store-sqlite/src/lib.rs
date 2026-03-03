@@ -1,10 +1,9 @@
 //! SQLite backend for the Kith contact store.
 //!
-//! Wraps [`tokio_rusqlite`] so all database access runs on a dedicated thread
-//! pool without blocking the async runtime.
+//! Uses [`sqlx`] with a `SqlitePool` for async database access.
+//! Schema is managed by `sqlx` migrations in `migrations/`.
 
 mod encode;
-mod schema;
 mod store;
 
 pub mod error;

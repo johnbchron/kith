@@ -1,13 +1,3 @@
-//! SQL schema for the Kith SQLite store.
-//!
-//! Executed once at connection startup via `PRAGMA user_version`. Future
-//! migrations will be gated on that version number.
-
-/// Full schema DDL; idempotent thanks to `CREATE TABLE IF NOT EXISTS`.
-pub const SCHEMA: &str = "
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-
 CREATE TABLE IF NOT EXISTS subjects (
     subject_id  TEXT PRIMARY KEY,
     created_at  TEXT NOT NULL,
@@ -26,7 +16,7 @@ CREATE TABLE IF NOT EXISTS facts (
     effective_until   TEXT,            -- JSON-encoded EffectiveDate or NULL
     source            TEXT,
     confidence        TEXT NOT NULL DEFAULT 'certain',
-    recording_context TEXT NOT NULL DEFAULT '{\"kind\":\"manual\"}',
+    recording_context TEXT NOT NULL DEFAULT '{"kind":"manual"}',
     tags              TEXT NOT NULL DEFAULT '[]'
 );
 
@@ -52,6 +42,3 @@ CREATE TABLE IF NOT EXISTS retractions (
 CREATE INDEX IF NOT EXISTS facts_subject_idx  ON facts(subject_id);
 CREATE INDEX IF NOT EXISTS facts_type_idx     ON facts(fact_type);
 CREATE INDEX IF NOT EXISTS facts_recorded_idx ON facts(recorded_at);
-
-PRAGMA user_version = 1;
-";
