@@ -4,6 +4,7 @@ name = "kith-vcard"
 version.workspace = true
 
 [dependencies]
+calcard = "0.3.2"
 chrono = { workspace = true }
 kith-core = { path = "../kith-core" }
 serde = { workspace = true }

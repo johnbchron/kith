@@ -14,8 +14,8 @@
 //! ```
 
 pub mod error;
-mod parse;
-mod serialize;
+mod from_vcard;
+mod to_vcard;
 
 pub use error::{Error, Result};
 use kith_core::{fact::NewFact, lifecycle::ContactView};
@@ -43,7 +43,7 @@ pub struct ParsedVcard {
 /// `source_name` is stored in every fact's
 /// `RecordingContext::Imported { source_name, … }`.
 pub fn parse(input: &str, source_name: &str) -> Result<ParsedVcard> {
-  parse::parse_one(input, source_name)
+  from_vcard::parse_one(input, source_name)
 }
 
 /// Parse zero or more vCards from `input`.
@@ -52,7 +52,20 @@ pub fn parse(input: &str, source_name: &str) -> Result<ParsedVcard> {
 /// block yields `Err(…)` in the corresponding position without aborting the
 /// rest.
 pub fn parse_many(input: &str, source_name: &str) -> Vec<Result<ParsedVcard>> {
-  let lines = parse::unfold_lines(input);
+  // Inline unfold: join CRLF+SP (or LF+SP/HT) continuations.
+  let mut lines: Vec<String> = Vec::new();
+  for raw in input.split('\n') {
+    let line = raw.strip_suffix('\r').unwrap_or(raw);
+    if line.starts_with(' ') || line.starts_with('\t') {
+      if let Some(last) = lines.last_mut() {
+        last.push_str(&line[1..]);
+      }
+    } else {
+      lines.push(line.to_string());
+    }
+  }
+  lines.retain(|l| !l.is_empty());
+
   let mut results = Vec::new();
   let mut i = 0;
 
@@ -66,7 +79,7 @@ pub fn parse_many(input: &str, source_name: &str) -> Vec<Result<ParsedVcard>> {
       if let Some(offset) = rel_end {
         let end = start + 1 + offset;
         let card_str = lines[start..=end].join("\r\n") + "\r\n";
-        results.push(parse::parse_one(&card_str, source_name));
+        results.push(from_vcard::parse_one(&card_str, source_name));
         i = end + 1;
       } else {
         results.push(Err(Error::MissingEnvelope));
@@ -83,12 +96,12 @@ pub fn parse_many(input: &str, source_name: &str) -> Vec<Result<ParsedVcard>> {
 /// Serialize `view` as a vCard 4.0 string (CRLF line endings, folded at 75
 /// octets).
 pub fn serialize(view: &ContactView) -> Result<String> {
-  serialize::serialize(view)
+  to_vcard::serialize(view)
 }
 
 /// Serialize `view` as a vCard 3.0 string.
 pub fn serialize_v3(view: &ContactView) -> Result<String> {
-  serialize::serialize_v3(view)
+  to_vcard::serialize_v3(view)
 }
 
 // ─── Round-trip test ─────────────────────────────────────────────────────────
