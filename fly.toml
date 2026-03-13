@@ -13,6 +13,7 @@ image = 'kith:latest'
 [http_service]
 auto_start_machines = false
 auto_stop_machines = 'off'
+http_options.h2_backend = true
 internal_port = 5232
 min_machines_running = 1
 

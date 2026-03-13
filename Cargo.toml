@@ -9,7 +9,7 @@ version = "0.1.0"
 [workspace.dependencies]
 anyhow = "1"
 argon2 = "0.5"
-axum = { version = "0.8", features = [ "macros" ] }
+axum = { version = "0.8", features = [ "macros", "http2" ] }
 base64 = "0.22"
 bytes = "1"
 chrono = { version = "0.4", features = [ "serde" ] }
@@ -27,9 +27,9 @@ tokio = { version = "1", features = [ "full" ] }
 
 dav-server = { version = "0.11", features = [ "carddav" ] }
 futures-util = "0.3"
+strum = { version = "0.27", features = [ "derive" ] }
 tower = "0.5"
 tower-http = { version = "0.6", features = [ "normalize-path", "trace" ] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
-strum = { version = "0.27", features = [ "derive" ] }
 uuid = { version = "1", features = [ "v4", "v5", "serde" ] }
