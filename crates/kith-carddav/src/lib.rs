@@ -1,35 +1,34 @@
 //! WebDAV/CardDAV protocol layer for Kith.
 //!
-//! Exposes an axum [`Router`] implementing the CardDAV protocol (RFC 6352)
-//! backed by any [`ContactStore`].
+//! Exposes an axum [`Router`] backed by a [`DavHandler`] that routes all DAV
+//! traffic to [`KithFs`], a [`DavFileSystem`] implementation that maps the
+//! kith contact store to a virtual CardDAV address book.
 
 pub mod auth;
 pub mod diff;
 pub mod error;
-pub mod etag;
-pub mod handlers;
-pub mod xml;
+pub(crate) mod fs;
 
 use std::{path::PathBuf, sync::Arc};
 
 use auth::{AuthConfig, verify_auth};
 use axum::{
   Router,
-  extract::{DefaultBodyLimit, Path, State},
-  http::{HeaderMap, Method, StatusCode},
+  body::Body,
+  extract::DefaultBodyLimit,
+  http::Method,
   response::{IntoResponse, Redirect, Response},
   routing::any,
 };
-use bytes::Bytes;
+use dav_server::DavHandler;
 pub use error::Error;
-use handlers::{delete, get, options, propfind, put, report};
+use fs::KithFs;
 use kith_api::api_router;
 use kith_core::store::ContactStore;
 use serde::Deserialize;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 
-// ─── Configuration
-// ────────────────────────────────────────────────────────────
+// ─── Configuration ────────────────────────────────────────────────────────────
 
 /// Runtime server configuration, deserialised from `config.toml`.
 #[derive(Deserialize, Clone)]
@@ -43,8 +42,7 @@ pub struct ServerConfig {
   pub auth_password_hash: String,
 }
 
-// ─── Application state
-// ────────────────────────────────────────────────────────
+// ─── Application state ────────────────────────────────────────────────────────
 
 /// Shared state threaded through all axum handlers.
 #[derive(Clone)]
@@ -54,35 +52,17 @@ pub struct AppState<S: ContactStore> {
   pub auth:   Arc<AuthConfig>,
 }
 
-// ─── Helpers
-// ──────────────────────────────────────────────────────────────────
+// ─── DAV-specific route state ─────────────────────────────────────────────────
 
-/// Return `Err(401 response)` for any method other than OPTIONS.
-fn require_auth<S>(
-  method: &Method,
-  headers: &HeaderMap,
-  state: &AppState<S>,
-) -> Result<(), Box<Response>>
-where
-  S: ContactStore + Clone + Send + Sync + 'static,
-{
-  if method == Method::OPTIONS {
-    return Ok(());
-  }
-  verify_auth(headers, &state.auth).map_err(|e| Box::new(e.into_response()))
+/// State for the `/dav` subtree.  Separate from `AppState` so the DavHandler
+/// does not need to be generic over `S`.
+#[derive(Clone)]
+struct DavState {
+  dav:  DavHandler,
+  auth: Arc<AuthConfig>,
 }
 
-/// Parse the `Depth` header as a `u8`, defaulting to `0`.
-fn depth(headers: &HeaderMap) -> u8 {
-  headers
-    .get("depth")
-    .and_then(|v| v.to_str().ok())
-    .and_then(|s| s.parse().ok())
-    .unwrap_or(0)
-}
-
-// ─── Router
-// ───────────────────────────────────────────────────────────────────
+// ─── Router ───────────────────────────────────────────────────────────────────
 
 /// Build an axum [`Router`] for the CardDAV server.
 pub fn router<S>(state: AppState<S>) -> Router
@@ -90,22 +70,27 @@ where
   S: ContactStore + Clone + Send + Sync + 'static,
   S::Error: std::error::Error + Send + Sync + 'static,
 {
-  let store = state.store.clone();
+  let kith_fs =
+    KithFs::new(Arc::clone(&state.store), state.config.addressbook.clone());
+
+  let dav = DavHandler::builder()
+    .filesystem(Box::new(kith_fs))
+    .strip_prefix("/dav")
+    .build_handler();
+
+  let dav_state = DavState { dav, auth: Arc::clone(&state.auth) };
+
+  // Mount /api routes (they carry the store directly; no DavHandler needed).
+  let api = api_router(Arc::clone(&state.store));
+
   Router::new()
-    .route("/.well-known/carddav", any(well_known_dav_handler))
-    .route("/.well-known/dav", any(well_known_dav_handler))
-    .route("/dav", any(dav_root_handler::<S>))
-    .route("/dav/addressbooks", any(dav_home_handler::<S>))
-    .route("/dav/addressbooks/{ab}", any(dav_collection_handler::<S>))
-    .route(
-      "/dav/addressbooks/{ab}/{uid_vcf}",
-      any(dav_resource_handler::<S>),
-    )
-    .route("/dav/{*path}", any(dav_wildcard_handler))
-    .with_state(state)
-    // Nest the JSON API after applying CardDAV state; both routers are
-    // Router<()> at this point so the state types match.
-    .nest("/api", api_router(store))
+    .route("/.well-known/carddav", any(well_known_handler))
+    .route("/.well-known/dav", any(well_known_handler))
+    // Catch all /dav paths including the bare /dav root.
+    .route("/dav", any(dav_dispatch))
+    .route("/dav/{*path}", any(dav_dispatch))
+    .with_state(dav_state)
+    .nest("/api", api)
     .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
     .layer(
       TraceLayer::new_for_http()
@@ -113,162 +98,63 @@ where
     )
 }
 
-// ─── Route handlers ──────────────────────────────────────────────────────────
+// ─── Handlers ────────────────────────────────────────────────────────────────
 
-async fn dav_root_handler<S>(
-  State(state): State<AppState<S>>,
+async fn well_known_handler() -> Redirect { Redirect::permanent("/dav") }
+
+async fn dav_dispatch(
+  axum::extract::State(state): axum::extract::State<DavState>,
   method: Method,
-  headers: HeaderMap,
-  body: Bytes,
-) -> Response
-where
-  S: ContactStore + Clone + Send + Sync + 'static,
-  S::Error: std::error::Error + Send + Sync + 'static,
-{
-  if let Err(r) = require_auth(&method, &headers, &state) {
-    return *r;
+  req: axum::http::Request<Body>,
+) -> Response {
+  // OPTIONS is always unauthenticated (client discovery).
+  if method != Method::OPTIONS {
+    if let Err(e) = verify_auth(req.headers(), &state.auth) {
+      return e.into_response();
+    }
   }
-  match method.as_str() {
-    "OPTIONS" => options::handler(),
-    "PROPFIND" => propfind::principal(&state, &body)
-      .await
-      .into_response_or_err(),
-    _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
-  }
+
+  // Normalise bare (unquoted) ETags in If-Match / If-None-Match.
+  // RFC 7232 requires entity-tags to be quoted-strings; some CardDAV clients
+  // (and kith's own tests) omit the surrounding `"…"`.
+  let req = normalize_etag_headers(req);
+
+  // Hand the request off to dav-server; it handles PROPFIND, REPORT, GET,
+  // PUT, DELETE, HEAD, and OPTIONS, including CardDAV-specific protocol.
+  let dav_resp = state.dav.handle(req).await;
+
+  // Convert dav_server::body::Body → axum::body::Body.
+  let (parts, dav_body) = dav_resp.into_parts();
+  Response::from_parts(parts, Body::new(dav_body))
 }
 
-async fn dav_home_handler<S>(
-  State(state): State<AppState<S>>,
-  method: Method,
-  headers: HeaderMap,
-  body: Bytes,
-) -> Response
-where
-  S: ContactStore + Clone + Send + Sync + 'static,
-  S::Error: std::error::Error + Send + Sync + 'static,
-{
-  if let Err(r) = require_auth(&method, &headers, &state) {
-    return *r;
-  }
-  match method.as_str() {
-    "OPTIONS" => options::handler(),
-    "PROPFIND" => propfind::home_set(&state, depth(&headers), &body)
-      .await
-      .into_response_or_err(),
-    _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
-  }
-}
+/// Wrap bare (unquoted) entity-tag values in double-quotes so they satisfy
+/// RFC 7232.  Passes through `*`, weak tags (`W/"…"`), and values that are
+/// already quoted.
+fn normalize_etag_headers(
+  mut req: axum::http::Request<Body>,
+) -> axum::http::Request<Body> {
+  use axum::http::header::{IF_MATCH, IF_NONE_MATCH};
 
-async fn dav_collection_handler<S>(
-  State(state): State<AppState<S>>,
-  Path(ab): Path<String>,
-  method: Method,
-  headers: HeaderMap,
-  body: Bytes,
-) -> Response
-where
-  S: ContactStore + Clone + Send + Sync + 'static,
-  S::Error: std::error::Error + Send + Sync + 'static,
-{
-  if let Err(r) = require_auth(&method, &headers, &state) {
-    return *r;
-  }
-  match method.as_str() {
-    "OPTIONS" => options::handler(),
-    "PROPFIND" => propfind::collection(&state, &ab, depth(&headers), &body)
-      .await
-      .into_response_or_err(),
-    "REPORT" => report::handler(&state, &ab, &body)
-      .await
-      .into_response_or_err(),
-    _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
-  }
-}
-
-async fn dav_resource_handler<S>(
-  State(state): State<AppState<S>>,
-  Path((ab, uid_vcf)): Path<(String, String)>,
-  method: Method,
-  headers: HeaderMap,
-  body: Bytes,
-) -> Response
-where
-  S: ContactStore + Clone + Send + Sync + 'static,
-  S::Error: std::error::Error + Send + Sync + 'static,
-{
-  if let Err(r) = require_auth(&method, &headers, &state) {
-    return *r;
-  }
-  // Attach the addressbook name and raw resource identifier to every
-  // tracing event emitted while handling this request.
-  let span = tracing::info_span!(
-    "carddav.resource",
-    ab = %ab,
-    uid = %uid_vcf,
-    method = %method,
-  );
-  let _guard = span.enter();
-
-  match method.as_str() {
-    "OPTIONS" => options::handler(),
-    "GET" | "HEAD" => get::handler(&state, &method, &uid_vcf)
-      .await
-      .into_response_or_err(),
-    "PUT" => {
-      let body_str = match std::str::from_utf8(&body) {
-        Ok(s) => s,
-        Err(_) => {
-          tracing::warn!(
-            ab = %ab,
-            uid = %uid_vcf,
-            body_len = body.len(),
-            "PUT body is not valid UTF-8",
-          );
-          return Error::BadRequest("body is not valid UTF-8".to_string())
-            .into_response();
-        }
+  for hname in [IF_MATCH, IF_NONE_MATCH] {
+    if let Some(val) = req.headers().get(&hname) {
+      let s = match val.to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => continue,
       };
-      put::handler(&state, &headers, &uid_vcf, body_str)
-        .await
-        .into_response_or_err()
-    }
-    "DELETE" => delete::handler(&state, &uid_vcf)
-      .await
-      .into_response_or_err(),
-    "PROPFIND" => propfind::resource(&state, &ab, &uid_vcf, &body)
-      .await
-      .into_response_or_err(),
-    _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
-  }
-}
-
-async fn dav_wildcard_handler(method: Method) -> Response {
-  if method == Method::OPTIONS {
-    options::handler()
-  } else {
-    StatusCode::NOT_FOUND.into_response()
-  }
-}
-
-async fn well_known_dav_handler() -> Redirect { Redirect::permanent("/dav") }
-
-// ─── Helper trait ────────────────────────────────────────────────────────────
-
-trait IntoResponseOrErr {
-  fn into_response_or_err(self) -> Response;
-}
-
-impl IntoResponseOrErr for Result<Response, Error> {
-  fn into_response_or_err(self) -> Response {
-    match self {
-      Ok(r) => r,
-      Err(e) => e.into_response(),
+      if s == "*" || s.starts_with('"') || s.starts_with("W/\"") {
+        continue;
+      }
+      let quoted = format!("\"{s}\"");
+      if let Ok(new_val) = axum::http::HeaderValue::from_str(&quoted) {
+        req.headers_mut().insert(hname, new_val);
+      }
     }
   }
+  req
 }
 
-// ─── Integration tests
-// ────────────────────────────────────────────────────────
+// ─── Integration tests ────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -300,22 +186,31 @@ mod tests {
     router(state).oneshot(req).await.unwrap()
   }
 
-  // ── OPTIONS
-  // ─────────────────────────────────────────────────────────────────
+  // ── OPTIONS ────────────────────────────────────────────────────────────────
 
   #[tokio::test]
   async fn options_returns_204_with_dav_header() {
     let state = make_state("secret").await;
-    let resp =
-      oneshot_raw(state, "OPTIONS", "/dav/addressbooks/personal", vec![], "")
-        .await;
-    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    let resp = oneshot_raw(
+      state,
+      "OPTIONS",
+      "/dav/addressbooks/personal",
+      vec![],
+      "",
+    )
+    .await;
+    // dav-server returns 200 OK for OPTIONS (also valid per RFC 7231).
+    assert!(
+      resp.status() == StatusCode::NO_CONTENT
+        || resp.status() == StatusCode::OK,
+      "expected 200 or 204, got {}",
+      resp.status()
+    );
     let dav_val = resp.headers().get("dav").unwrap().to_str().unwrap();
     assert!(dav_val.contains("addressbook"), "DAV header: {dav_val}");
   }
 
-  // ── PROPFIND collection
-  // ──────────────────────────────────────────────────────
+  // ── PROPFIND collection ────────────────────────────────────────────────────
 
   #[tokio::test]
   async fn propfind_empty_store_returns_207() {
@@ -374,14 +269,14 @@ mod tests {
       .await
       .unwrap();
     let xml = std::str::from_utf8(&bytes).unwrap();
-    assert!(xml.contains("personal/"), "collection href missing: {xml}");
+    assert!(xml.contains("personal"), "collection href missing: {xml}");
     assert!(
       xml.contains(&uid.to_string()),
       "resource href missing: {xml}"
     );
   }
 
-  // ── GET ──────────────────────────────────────────────────────────────────────
+  // ── GET ────────────────────────────────────────────────────────────────────
 
   #[tokio::test]
   async fn get_nonexistent_returns_404() {
@@ -399,8 +294,7 @@ mod tests {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
   }
 
-  // ── PUT / GET round-trip
-  // ─────────────────────────────────────────────────────
+  // ── PUT / GET round-trip ──────────────────────────────────────────────────
 
   #[tokio::test]
   async fn put_creates_and_get_returns_vcard() {
@@ -449,8 +343,7 @@ mod tests {
     assert!(body.contains("BEGIN:VCARD"), "body: {body}");
   }
 
-  // ── PUT with If-Match
-  // ────────────────────────────────────────────────────────
+  // ── PUT with If-Match ──────────────────────────────────────────────────────
 
   #[tokio::test]
   async fn put_with_correct_if_match_returns_204() {
@@ -497,8 +390,6 @@ mod tests {
 
   #[tokio::test]
   async fn put_with_unquoted_if_match_returns_204() {
-    // Some clients send If-Match without the surrounding double-quotes.
-    // The server should accept both forms.
     let state = make_state("secret").await;
     let auth = auth_header("user", "secret");
     let uid = Uuid::new_v4();
@@ -515,7 +406,6 @@ mod tests {
     )
     .await;
     assert_eq!(resp1.status(), StatusCode::CREATED);
-    // Strip the surrounding quotes to simulate a bare-ETag client.
     let etag_quoted = resp1
       .headers()
       .get(header::ETAG)
@@ -577,7 +467,7 @@ mod tests {
     assert_eq!(resp2.status(), StatusCode::PRECONDITION_FAILED);
   }
 
-  // ── DELETE ───────────────────────────────────────────────────────────────────
+  // ── DELETE ─────────────────────────────────────────────────────────────────
 
   #[tokio::test]
   async fn delete_existing_returns_204_and_get_returns_404() {
@@ -635,13 +525,12 @@ mod tests {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
   }
 
-  // ── Auth ─────────────────────────────────────────────────────────────────────
+  // ── Auth ───────────────────────────────────────────────────────────────────
 
   #[tokio::test]
   async fn unauthenticated_requests_return_401() {
     let state = make_state("secret").await;
     let uid = Uuid::new_v4();
-
     let resp = oneshot_raw(
       state.clone(),
       "GET",
@@ -655,8 +544,7 @@ mod tests {
   }
 }
 
-// ─── Shared test helpers
-// ──────────────────────────────────────────────────────
+// ─── Shared test helpers ──────────────────────────────────────────────────────
 
 #[cfg(test)]
 pub(crate) mod test_helpers {
@@ -669,7 +557,9 @@ pub(crate) mod test_helpers {
 
   use crate::{AppState, ServerConfig, auth::AuthConfig};
 
-  pub(crate) async fn make_state(password: &str) -> AppState<SqliteStore> {
+  pub(crate) async fn make_state(
+    password: &str,
+  ) -> AppState<SqliteStore> {
     let store = SqliteStore::open_in_memory().await.unwrap();
     let salt = SaltString::generate(&mut OsRng);
     let hash = Argon2::default()

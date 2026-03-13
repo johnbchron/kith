@@ -12,12 +12,13 @@ bytes = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 config = { workspace = true }
+dav-server = { workspace = true }
+futures-util = { workspace = true }
 hex = { workspace = true }
 kith-api = { path = "../kith-api" }
 kith-core = { path = "../kith-core" }
 kith-store-sqlite = { path = "../kith-store-sqlite" }
 kith-vcard = { path = "../kith-vcard" }
-quick-xml = { workspace = true }
 rand_core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

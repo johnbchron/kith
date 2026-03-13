@@ -18,8 +18,6 @@ pub enum Error {
   Conflict(String),
   #[error("bad request: {0}")]
   BadRequest(String),
-  #[error("xml error: {0}")]
-  Xml(String),
   #[error("vcard error: {0}")]
   Vcard(#[from] kith_vcard::Error),
   #[error("store error: {0}")]
@@ -38,10 +36,13 @@ impl IntoResponse for Error {
         );
         res
       }
-      Error::NotFound => (StatusCode::NOT_FOUND, "Not Found").into_response(),
+      Error::NotFound => {
+        (StatusCode::NOT_FOUND, "Not Found").into_response()
+      }
       Error::PreconditionFailed => {
         tracing::warn!("precondition failed (412)");
-        (StatusCode::PRECONDITION_FAILED, "Precondition Failed").into_response()
+        (StatusCode::PRECONDITION_FAILED, "Precondition Failed")
+          .into_response()
       }
       Error::Conflict(msg) => {
         tracing::warn!(reason = %msg, "conflict (409)");
@@ -50,10 +51,6 @@ impl IntoResponse for Error {
       Error::BadRequest(msg) => {
         tracing::warn!(reason = %msg, "bad request (400)");
         (StatusCode::BAD_REQUEST, msg).into_response()
-      }
-      Error::Xml(msg) => {
-        tracing::error!(reason = %msg, "XML processing error (500)");
-        (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
       }
       Error::Vcard(e) => {
         tracing::error!(error = %e, "vCard processing error (500)");
